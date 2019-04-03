@@ -18,8 +18,10 @@
     <description>This is the custom module (Content Security Policy) for running on a Digital Experience Manager server.</description>
 
     <scm>
-        <connection>scm:dummy:uri</connection>
-        <developerConnection>scm:dummy:uri</developerConnection>
+        <connection>scm:git:git@github.com:Jahia/content-security-policy.git</connection>
+        <developerConnection>scm:git:git@github.com:Jahia/content-security-policy.git</developerConnection>
+        <url>https://github.com/Jahia/content-security-policy</url>
+        <tag>HEAD</tag>
     </scm>
 
     <repositories>
