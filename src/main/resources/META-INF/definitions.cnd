@@ -1,0 +1,14 @@
+<jnt = 'http://www.jahia.org/jahia/nt/1.0'>
+<jmix = 'http://www.jahia.org/jahia/mix/1.0'>
+
+[jmix:siteContentSecurityPolicy] mixin
+ extends = jnt:virtualsite
+ itemtype = options
+ - policy (string,textarea) nofulltext
+
+
+[jmix:pageContentSecurityPolicy] mixin
+ extends = jnt:page
+ itemtype = options
+ - policy (string,textarea) nofulltext
+
