@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0                       http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <artifactId>jahia-modules</artifactId>
@@ -10,7 +10,7 @@
     <groupId>org.jahia.modules</groupId>
     <artifactId>content-security-policy</artifactId>
     <name>Content Security Policy</name>
-    <version>1.0.0</version>    
+    <version>1.0.1-SNAPSHOT</version>    
     <packaging>bundle</packaging>
     <description>This is the custom module (Content Security Policy) for running on a Digital Experience Manager server.</description>
 
@@ -18,7 +18,7 @@
         <connection>scm:git:git@github.com:Jahia/content-security-policy.git</connection>
         <developerConnection>scm:git:git@github.com:Jahia/content-security-policy.git</developerConnection>
         <url>https://github.com/Jahia/content-security-policy</url>
-        <tag>1_0_0</tag>
+        <tag>HEAD</tag>
     </scm>
 
     <repositories>
