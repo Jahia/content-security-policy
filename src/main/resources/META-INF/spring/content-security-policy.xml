@@ -8,6 +8,10 @@
         <property name="applyOnModes" value="live,preview"/>
         <property name="priority" value="-1"/>
     </bean>
+    
+    <bean id="contentSecurityPolicyReportOnly" class="org.jahia.modules.csp.actions.ReportOnlyAction">
+        <property name="name" value="contentSecurityPolicyReportOnly"/>
+    </bean>
 </beans>
 
 
