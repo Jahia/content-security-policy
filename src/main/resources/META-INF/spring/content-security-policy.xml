@@ -6,7 +6,7 @@
         <property name="applyOnConfigurations" value="page"/>
         <property name="skipOnConfiguration" value="include,wrapper"/>
         <property name="applyOnModes" value="live,preview"/>
-        <property name="priority" value="-1"/>
+        <property name="priority" value="-999"/>
     </bean>
     
     <bean id="contentSecurityPolicyReportOnly" class="org.jahia.modules.csp.actions.ReportOnlyAction">
