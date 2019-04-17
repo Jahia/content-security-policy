@@ -13,10 +13,8 @@ import org.jahia.services.render.Resource;
 import org.jahia.services.render.filter.AbstractFilter;
 import org.jahia.services.render.filter.RenderChain;
 import org.jahia.settings.SettingsBean;
-import org.springframework.context.ApplicationEvent;
-import org.springframework.context.ApplicationListener;
 
-public class AddContentSecurityPolicy extends AbstractFilter implements ApplicationListener<ApplicationEvent> {
+public final class AddContentSecurityPolicy extends AbstractFilter {
 
     private static final String CSP_SEPARATOR = ";";
     private static final String CSP_PROPERTY = "policy";
@@ -35,7 +33,7 @@ public class AddContentSecurityPolicy extends AbstractFilter implements Applicat
     @Override
     public String execute(String previousOut, RenderContext renderContext, Resource resource, RenderChain chain) throws Exception {
         final HttpServletResponse response = renderContext.getResponse();
-        final StringBuffer contentSecurityPolicy = new StringBuffer();
+        final StringBuilder contentSecurityPolicy = new StringBuilder();
 
         final JCRSiteNode site = renderContext.getSite();
         final String siteContentSecurityPolicy = site.hasProperty(CSP_PROPERTY) ? site.getProperty(CSP_PROPERTY).getString() : null;
@@ -64,9 +62,5 @@ public class AddContentSecurityPolicy extends AbstractFilter implements Applicat
         final byte[] src = ByteBuffer.wrap(new byte[16]).putLong(uuid.getMostSignificantBits())
                 .putLong(uuid.getLeastSignificantBits()).array();
         return encoder.encodeToString(src).substring(0, 22);
-    }
-
-    @Override
-    public void onApplicationEvent(ApplicationEvent e) {
     }
 }

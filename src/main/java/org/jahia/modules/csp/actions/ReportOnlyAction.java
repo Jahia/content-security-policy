@@ -14,7 +14,7 @@ import org.jahia.services.render.URLResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class ReportOnlyAction extends Action {
+public final class ReportOnlyAction extends Action {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ReportOnlyAction.class);
     public static final String CSP_REPORT_ONLY = "cspReportOnly";
