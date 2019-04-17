@@ -11,6 +11,7 @@
     
     <bean id="contentSecurityPolicyReportOnly" class="org.jahia.modules.csp.actions.ReportOnlyAction">
         <property name="name" value="contentSecurityPolicyReportOnly"/>
+        <property name="requireAuthenticatedUser" value="false"/>
     </bean>
 </beans>
 
