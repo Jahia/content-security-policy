@@ -5,12 +5,12 @@
     <parent>
         <artifactId>jahia-modules</artifactId>
         <groupId>org.jahia.modules</groupId>
-        <version>7.2.3.1</version>
+        <version>7.5.0.0-SNAPSHOT</version>
     </parent>
     <groupId>org.jahia.modules</groupId>
     <artifactId>content-security-policy</artifactId>
     <name>Content Security Policy</name>
-    <version>1.0.2-SNAPSHOT</version>    
+    <version>2.0.0-SNAPSHOT</version>    
     <packaging>bundle</packaging>
     <description>This is the custom module (Content Security Policy) for running on a Digital Experience Manager server.</description>
 
@@ -20,6 +20,11 @@
         <url>https://github.com/Jahia/content-security-policy</url>
         <tag>HEAD</tag>
     </scm>
+
+    <properties>
+        <jahia-module-signature>MC0CFQCKk6hQteOkJrKgd1xQURYQc4q6BwIUPAu6xJzt8/xwNaMINo3ncCflDpI=</jahia-module-signature>
+        <require-capability>osgi.extender;filter:="(osgi.extender=org.jahia.bundles.blueprint.extender.config)"</require-capability>
+    </properties>
 
     <repositories>
         <repository>
