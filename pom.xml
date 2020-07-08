@@ -5,9 +5,8 @@
     <parent>
         <artifactId>jahia-modules</artifactId>
         <groupId>org.jahia.modules</groupId>
-        <version>8.0.0.0</version>
+        <version>8.0.1.0-SNAPSHOT</version>
     </parent>
-    <groupId>org.jahia.modules</groupId>
     <artifactId>content-security-policy</artifactId>
     <name>Content Security Policy</name>
     <version>2.1.0-SNAPSHOT</version>    
@@ -22,7 +21,7 @@
     </scm>
 
     <properties>
-        <jahia-module-signature>MC0CFQCKk6hQteOkJrKgd1xQURYQc4q6BwIUPAu6xJzt8/xwNaMINo3ncCflDpI=</jahia-module-signature>
+        <jahia-module-signature>MCwCFCurKQmpGsvE/H+lGQw7039RTVk8AhRYsnNv27cLmWo0F85Fa5HF4TbXEg==</jahia-module-signature>
         <require-capability>osgi.extender;filter:="(osgi.extender=org.jahia.bundles.blueprint.extender.config)"</require-capability>
     </properties>
 
