@@ -21,7 +21,7 @@
     </scm>
 
     <properties>
-        <jahia-module-signature>MCwCFCurKQmpGsvE/H+lGQw7039RTVk8AhRYsnNv27cLmWo0F85Fa5HF4TbXEg==</jahia-module-signature>
+        <jahia-module-signature>MCwCFHnDFrhmf0SHfSmWifLZ/x3DArTuAhRApZtJy5sWMcRaytsOtgghduAJmw==</jahia-module-signature>
         <require-capability>osgi.extender;filter:="(osgi.extender=org.jahia.bundles.blueprint.extender.config)"</require-capability>
     </properties>
 

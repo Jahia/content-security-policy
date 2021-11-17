@@ -44,7 +44,8 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
 
             final String cspHeader;
             if (site.hasProperty(ReportOnlyAction.CSP_REPORT_ONLY) && site.getProperty(ReportOnlyAction.CSP_REPORT_ONLY).getBoolean()) {
-                final String reportUri = resource.getNodePath() + ".contentSecurityPolicyReportOnly.do";
+                final String reportUri = renderContext.getRequest().getContextPath() + resource.getNodePath()
+                        + ".contentSecurityPolicyReportOnly.do";
                 contentSecurityPolicy.append(CSP_SEPARATOR).append(" report-uri ").append(reportUri);
                 cspHeader = CSP_REPORT_ONLY_HEADER;
             } else {
