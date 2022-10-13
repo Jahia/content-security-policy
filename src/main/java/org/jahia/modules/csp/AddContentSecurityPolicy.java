@@ -60,9 +60,9 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
 
         final JCRSiteNode site = renderContext.getSite();
         final String siteContentSecurityPolicy = site.hasProperty(CSP_PROPERTY) ? site.getProperty(CSP_PROPERTY).getString() : null;
+        final String nonce = getNonceValue();
 
         if (StringUtils.isNotEmpty(siteContentSecurityPolicy)) {
-            final String nonce = getNonceValue();
             contentSecurityPolicy.append(siteContentSecurityPolicy.replace(CSP_WEB_NONCE_PLACEHOLDER, CSP_WEB_NONCE_PLACEHOLDER + nonce));
 
             final String cspHeader;
@@ -75,6 +75,9 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
                 cspHeader = CSP_HEADER;
             }
             response.setHeader(cspHeader, contentSecurityPolicy.toString());
+        }
+
+        if (site.getInstalledModules().contains("content-security-policy")) {
             return previousOut.replaceAll("nonce=\"" + cspNoncePlaceHolder + "\"", "nonce=\"" + nonce + "\"");
         }
 
