@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2002 - 2022 Jahia Solutions Group. All rights reserved.
+ * Copyright (c) 2002 - 2025 Jahia Solutions Group. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,6 +28,7 @@ import java.util.Base64;
 import java.util.Base64.Encoder;
 import java.util.UUID;
 import javax.servlet.http.HttpServletResponse;
+
 import org.apache.commons.lang.StringUtils;
 import org.jahia.modules.csp.actions.ReportOnlyAction;
 import org.jahia.services.content.decorator.JCRSiteNode;
@@ -43,8 +44,10 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
     private static final String CSP_PROPERTY = "policy";
     private static final String CSP_HEADER = "Content-Security-Policy";
     private static final String CSP_REPORT_ONLY_HEADER = "Content-Security-Policy-Report-Only";
+    private static final String REPORTING_ENDPOINTS_HEADER = "Reporting-Endpoints";
     private static final String CSP_WEB_NONCE_PLACEHOLDER = "nonce-";
     public static final String CSP_NONCE_PLACEHOLDER_PROP = "contentSecurityPolicy.nonce.placeHolder";
+    private static final String CSP_ENDPOINT_NAME = "csp-endpoint";
     private final Encoder encoder;
     private final String cspNoncePlaceHolder;
 
@@ -56,25 +59,26 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
     @Override
     public String execute(String previousOut, RenderContext renderContext, Resource resource, RenderChain chain) throws Exception {
         final HttpServletResponse response = renderContext.getResponse();
-        final StringBuilder contentSecurityPolicy = new StringBuilder();
 
         final JCRSiteNode site = renderContext.getSite();
         final String siteContentSecurityPolicy = site.hasProperty(CSP_PROPERTY) ? site.getProperty(CSP_PROPERTY).getString() : null;
         final String nonce = getNonceValue();
 
         if (StringUtils.isNotEmpty(siteContentSecurityPolicy)) {
-            contentSecurityPolicy.append(siteContentSecurityPolicy.replace(CSP_WEB_NONCE_PLACEHOLDER, CSP_WEB_NONCE_PLACEHOLDER + nonce));
+            final String reportEndpoint = renderContext.getRequest().getContextPath() + resource.getNodePath() + ".contentSecurityPolicyReportOnly.do";
+            response.setHeader(REPORTING_ENDPOINTS_HEADER, CSP_ENDPOINT_NAME + "=\"" + reportEndpoint + "\"");
+
+            String contentSecurityPolicy = siteContentSecurityPolicy.replace(CSP_WEB_NONCE_PLACEHOLDER, CSP_WEB_NONCE_PLACEHOLDER + nonce) +
+                    CSP_SEPARATOR + " report-uri " + reportEndpoint +
+                    CSP_SEPARATOR + " report-to " + CSP_ENDPOINT_NAME;
 
             final String cspHeader;
             if (site.hasProperty(ReportOnlyAction.CSP_REPORT_ONLY) && site.getProperty(ReportOnlyAction.CSP_REPORT_ONLY).getBoolean()) {
-                final String reportUri = renderContext.getRequest().getContextPath() + resource.getNodePath()
-                        + ".contentSecurityPolicyReportOnly.do";
-                contentSecurityPolicy.append(CSP_SEPARATOR).append(" report-uri ").append(reportUri);
                 cspHeader = CSP_REPORT_ONLY_HEADER;
             } else {
                 cspHeader = CSP_HEADER;
             }
-            response.setHeader(cspHeader, contentSecurityPolicy.toString());
+            response.setHeader(cspHeader, contentSecurityPolicy);
         }
 
         if (site.getInstalledModules().contains("content-security-policy")) {

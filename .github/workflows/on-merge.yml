@@ -15,7 +15,7 @@ jobs:
     name: Update module signature
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: jahia/jahia-modules-action/update-signature@v2
         with:
           nexus_username: ${{ secrets.NEXUS_USERNAME }}
@@ -32,7 +32,8 @@ jobs:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_PASSWORD }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - run: corepack enable
       - uses: jahia/jahia-modules-action/build@v2
         with:
           nexus_username: ${{ secrets.NEXUS_USERNAME }}
@@ -52,6 +53,21 @@ jobs:
           dependencytrack_apikey: ${{ secrets.DEPENDENCYTRACK_APIKEY }}
           sbom_artifacts: 'build-artifacts'
 
+  integration-tests-standalone:
+    uses:  Jahia/jahia-modules-action/.github/workflows/integration-tests.yml@v2
+    needs: build
+    secrets: inherit
+    with:
+      jahia_image: jahia/jahia-ee-dev:8-SNAPSHOT
+      module_id: content-security-policy
+      testrail_project: Content Security Policy
+      pagerduty_skip_notification: true
+      provisioning_manifest: provisioning-manifest-build.yml
+      should_use_build_artifacts: true
+      pagerduty_incident_service: content-security-policy-JahiaSN
+      artifact_prefix: csp
+      module_branch: ${{ github.head_ref }}
+
   publish:
     name: Publish module
     needs: build
@@ -63,7 +79,7 @@ jobs:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_PASSWORD }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: jahia/jahia-modules-action/publish@v2
         with:
           nexus_username: ${{ secrets.NEXUS_USERNAME }}
