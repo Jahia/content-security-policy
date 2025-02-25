@@ -11,7 +11,7 @@ For more information about the **Content Security Policy**, please refer to this
 # Installation
 
 - In DX, go to "Administration --> Server settings --> System components --> Modules"
-- Upload the JAR **content-security-policyt-X.X.X.jar**
+- Upload the JAR `content-security-policy-X.X.X.jar`
 - Check that the module is started
 
 # Use
