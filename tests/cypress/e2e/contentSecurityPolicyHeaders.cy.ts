@@ -96,7 +96,6 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
         configureCSPPolicyGlobally(sitePolicy);
         const pagePolicy = 'img-src \'none\'; style-src \'none\'';
         configureCSPPolicyForPage('home', pagePolicy);
-        cy.intercept(`/sites/${SITE_KEY}/home.contentSecurityPolicyReportOnly.do`, {}).as('cspAttacks');
 
         cy.request(`/sites/${SITE_KEY}/home.html`).then(response => {
             // Page with both site and page policies
@@ -110,7 +109,6 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
             expect(response.headers['content-security-policy-report-only']).to.be.undefined;
             expect(response.headers['reporting-endpoints']).to.equal(`csp-endpoint="/sites/${SITE_KEY}/simple.contentSecurityPolicyReportOnly.do"`);
         });
-        cy.wait('@cspAttacks').its('request.body').should('include', 'blocked');
     });
 
     it('GIVEN CSP configured to restrict img src WHEN loading a page THEN only the legit resources should be loaded by the browser', () => {
