@@ -128,7 +128,6 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
 
         cy.wait('@images').its('response.statusCode').should('eq', 200);
         cy.get('@images.all').then(interceptions => {
-            console.log('interceptions', interceptions);
             const requestedUrls = interceptions.map(interception => interception.request.url);
             expect(requestedUrls).to.include(legitResource);
             expect(requestedUrls).to.not.include(forbiddenResource);
