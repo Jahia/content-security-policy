@@ -47,6 +47,7 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
     private static final String REPORTING_ENDPOINTS_HEADER = "Reporting-Endpoints";
     private static final String CSP_WEB_NONCE_PLACEHOLDER = "nonce-";
     public static final String CSP_NONCE_PLACEHOLDER_PROP = "contentSecurityPolicy.nonce.placeHolder";
+    private static final String CSP_ENDPOINT_NAME = "csp-endpoint";
     private final Encoder encoder;
     private final String cspNoncePlaceHolder;
 
@@ -65,11 +66,11 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
 
         if (StringUtils.isNotEmpty(siteContentSecurityPolicy)) {
             final String reportEndpoint = renderContext.getRequest().getContextPath() + resource.getNodePath() + ".contentSecurityPolicyReportOnly.do";
-            response.setHeader(REPORTING_ENDPOINTS_HEADER, "csp-endpoint=\"" + reportEndpoint + "\"");
+            response.setHeader(REPORTING_ENDPOINTS_HEADER, CSP_ENDPOINT_NAME + "=\"" + reportEndpoint + "\"");
 
             String contentSecurityPolicy = siteContentSecurityPolicy.replace(CSP_WEB_NONCE_PLACEHOLDER, CSP_WEB_NONCE_PLACEHOLDER + nonce) +
                     CSP_SEPARATOR + " report-uri " + reportEndpoint +
-                    CSP_SEPARATOR + " report-to " + reportEndpoint;
+                    CSP_SEPARATOR + " report-to " + CSP_ENDPOINT_NAME;
 
             final String cspHeader;
             if (site.hasProperty(ReportOnlyAction.CSP_REPORT_ONLY) && site.getProperty(ReportOnlyAction.CSP_REPORT_ONLY).getBoolean()) {

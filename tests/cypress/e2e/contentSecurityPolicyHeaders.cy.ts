@@ -61,7 +61,7 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
 
         PAGES.forEach(page => {
             cy.request(`/sites/${SITE_KEY}/${page}.html`).then(response => {
-                expect(response.headers['content-security-policy']).to.equal(`${policy}; report-uri /sites/${SITE_KEY}/${page}.contentSecurityPolicyReportOnly.do; report-to /sites/${SITE_KEY}/${page}.contentSecurityPolicyReportOnly.do`);
+                expect(response.headers['content-security-policy']).to.equal(`${policy}; report-uri /sites/${SITE_KEY}/${page}.contentSecurityPolicyReportOnly.do; report-to csp-endpoint`);
                 expect(response.headers['content-security-policy-report-only']).to.be.undefined;
                 expect(response.headers['reporting-endpoints']).to.equal(`csp-endpoint="/sites/${SITE_KEY}/${page}.contentSecurityPolicyReportOnly.do"`);
             });
@@ -76,7 +76,7 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
         PAGES.forEach(page => {
             cy.request(`/sites/${SITE_KEY}/${page}.html`).then(response => {
                 expect(response.headers['content-security-policy']).to.be.undefined;
-                expect(response.headers['content-security-policy-report-only']).to.equal(`${policy}; report-uri /sites/${SITE_KEY}/${page}.contentSecurityPolicyReportOnly.do; report-to /sites/${SITE_KEY}/${page}.contentSecurityPolicyReportOnly.do`);
+                expect(response.headers['content-security-policy-report-only']).to.equal(`${policy}; report-uri /sites/${SITE_KEY}/${page}.contentSecurityPolicyReportOnly.do; report-to csp-endpoint`);
                 expect(response.headers['reporting-endpoints']).to.equal(`csp-endpoint="/sites/${SITE_KEY}/${page}.contentSecurityPolicyReportOnly.do"`);
             });
         });
