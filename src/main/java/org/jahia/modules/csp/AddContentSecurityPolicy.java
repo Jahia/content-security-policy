@@ -26,11 +26,15 @@ package org.jahia.modules.csp;
 import java.nio.ByteBuffer;
 import java.util.Base64;
 import java.util.Base64.Encoder;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.servlet.http.HttpServletResponse;
 
 import org.apache.commons.lang.StringUtils;
 import org.jahia.modules.csp.actions.ReportOnlyAction;
+import org.jahia.services.content.JCRNodeWrapper;
 import org.jahia.services.content.decorator.JCRSiteNode;
 import org.jahia.services.render.RenderContext;
 import org.jahia.services.render.Resource;
@@ -62,13 +66,19 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
 
         final JCRSiteNode site = renderContext.getSite();
         final String siteContentSecurityPolicy = site.hasProperty(CSP_PROPERTY) ? site.getProperty(CSP_PROPERTY).getString() : null;
+        final JCRNodeWrapper page = renderContext.getMainResource().getNode();
+        final String pageContentSecurityPolicy = page.hasProperty(CSP_PROPERTY) ? page.getProperty(CSP_PROPERTY).getString() : null;
+        final String policyDirectives = Stream.of(siteContentSecurityPolicy, pageContentSecurityPolicy)
+                .filter(Objects::nonNull)
+                .collect(Collectors.joining(CSP_SEPARATOR));
+
         final String nonce = getNonceValue();
 
-        if (StringUtils.isNotEmpty(siteContentSecurityPolicy)) {
+        if (StringUtils.isNotEmpty(policyDirectives)) {
             final String reportEndpoint = renderContext.getRequest().getContextPath() + resource.getNodePath() + ".contentSecurityPolicyReportOnly.do";
             response.setHeader(REPORTING_ENDPOINTS_HEADER, CSP_ENDPOINT_NAME + "=\"" + reportEndpoint + "\"");
 
-            String contentSecurityPolicy = siteContentSecurityPolicy.replace(CSP_WEB_NONCE_PLACEHOLDER, CSP_WEB_NONCE_PLACEHOLDER + nonce) +
+            String contentSecurityPolicy = policyDirectives.replace(CSP_WEB_NONCE_PLACEHOLDER, CSP_WEB_NONCE_PLACEHOLDER + nonce) +
                     CSP_SEPARATOR + " report-uri " + reportEndpoint +
                     CSP_SEPARATOR + " report-to " + CSP_ENDPOINT_NAME;
 

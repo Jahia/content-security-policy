@@ -18,7 +18,16 @@
 <div class="body">
     This is a sample view
 </div>
+<textarea id="htmlInput" rows="10" cols="50" placeholder="Enter your HTML code here"></textarea>
+<br>
+<button id="sendButton">Send</button>
+<div id="outputDiv"></div>
 
+<script>
+    document.getElementById('sendButton').addEventListener('click', function() {
+        document.getElementById('outputDiv').innerHTML = document.getElementById('htmlInput').value;
+    });
+</script>
 <c:if test="${renderContext.editMode}">
     <template:addResources type="css" resources="edit.css" />
 </c:if>
