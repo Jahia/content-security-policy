@@ -23,15 +23,6 @@
  */
 package org.jahia.modules.csp;
 
-import java.nio.ByteBuffer;
-import java.util.Base64;
-import java.util.Base64.Encoder;
-import java.util.Objects;
-import java.util.UUID;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-import javax.servlet.http.HttpServletResponse;
-
 import org.apache.commons.lang.StringUtils;
 import org.jahia.modules.csp.actions.ReportOnlyAction;
 import org.jahia.services.content.JCRNodeWrapper;
@@ -41,6 +32,12 @@ import org.jahia.services.render.Resource;
 import org.jahia.services.render.filter.AbstractFilter;
 import org.jahia.services.render.filter.RenderChain;
 import org.jahia.settings.SettingsBean;
+
+import javax.servlet.http.HttpServletResponse;
+import java.nio.ByteBuffer;
+import java.util.Base64;
+import java.util.Base64.Encoder;
+import java.util.UUID;
 
 public final class AddContentSecurityPolicy extends AbstractFilter {
 
@@ -65,12 +62,10 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
         final HttpServletResponse response = renderContext.getResponse();
 
         final JCRSiteNode site = renderContext.getSite();
-        final String siteContentSecurityPolicy = site.hasProperty(CSP_PROPERTY) ? site.getProperty(CSP_PROPERTY).getString() : null;
         final JCRNodeWrapper page = renderContext.getMainResource().getNode();
-        final String pageContentSecurityPolicy = page.hasProperty(CSP_PROPERTY) ? page.getProperty(CSP_PROPERTY).getString() : null;
-        final String policyDirectives = Stream.of(siteContentSecurityPolicy, pageContentSecurityPolicy)
-                .filter(Objects::nonNull)
-                .collect(Collectors.joining(CSP_SEPARATOR));
+
+        // use CSP at page-level first, otherwise use the one defined at site-level
+        final String policyDirectives = page.hasProperty(CSP_PROPERTY) ? page.getProperty(CSP_PROPERTY).getString() : site.hasProperty(CSP_PROPERTY) ? site.getProperty(CSP_PROPERTY).getString() : null;
 
         final String nonce = getNonceValue();
 

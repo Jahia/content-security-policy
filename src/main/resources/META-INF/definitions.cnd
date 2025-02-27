@@ -7,3 +7,9 @@
  - policy (string,textarea) nofulltext indexed=no
  - cspReportOnly (boolean) = false indexed=no
 
+
+[jmix:pageContentSecurityPolicy] mixin
+ extends = jnt:page
+ itemtype = options
+ - policy (string,textarea) nofulltext indexed=no
+

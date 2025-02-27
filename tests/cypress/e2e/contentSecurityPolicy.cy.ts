@@ -24,7 +24,7 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
 
     function configureCSPPolicyForPage(page: string, policy: string, reportOnly = false) {
         const path = `/sites/${SITE_KEY}/${page}`;
-        addMixins(path, ['jmix:siteContentSecurityPolicy']);
+        addMixins(path, ['jmix:pageContentSecurityPolicy']);
         setNodeProperty(path, 'policy', policy, 'en');
         setNodeProperty(path, 'cspReportOnly', reportOnly.toString(), 'en');
         publishAndWaitJobEnding(path, ['en']);
@@ -90,7 +90,7 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
         });
     });
 
-    it('GIVEN CSP configured at the site level and for a page WHEN loading pages THEN the response headers for that page contain the additional directives', () => {
+    it('GIVEN CSP configured at the site level and at the page level WHEN loading pages THEN the page-level policies replace the site-level policies', () => {
         enableCSPModule();
         const sitePolicy = 'script-src \'self\' js.example.com';
         configureCSPPolicyGlobally(sitePolicy);
@@ -98,8 +98,8 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
         configureCSPPolicyForPage('home', pagePolicy);
 
         cy.request(`/sites/${SITE_KEY}/home.html`).then(response => {
-            // Page with both site and page policies
-            expect(response.headers['content-security-policy'], 'the header should contain both the site and the page policies').to.equal(`${sitePolicy};${pagePolicy}; report-uri /sites/${SITE_KEY}/home.contentSecurityPolicyReportOnly.do; report-to csp-endpoint`);
+            // Page with page policies
+            expect(response.headers['content-security-policy'], 'the header should contain both the site and the page policies').to.equal(`${pagePolicy}; report-uri /sites/${SITE_KEY}/home.contentSecurityPolicyReportOnly.do; report-to csp-endpoint`);
             expect(response.headers['content-security-policy-report-only']).to.be.undefined;
             expect(response.headers['reporting-endpoints']).to.equal(`csp-endpoint="/sites/${SITE_KEY}/home.contentSecurityPolicyReportOnly.do"`);
         });
