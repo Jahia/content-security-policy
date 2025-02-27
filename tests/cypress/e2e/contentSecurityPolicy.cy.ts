@@ -24,7 +24,7 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
 
     function configureCSPPolicyForPage(page: string, policy: string, reportOnly = false) {
         const path = `/sites/${SITE_KEY}/${page}`;
-        addMixins(path, ['jmix:siteContentSecurityPolicy']);
+        addMixins(path, ['jmix:pageContentSecurityPolicy']);
         setNodeProperty(path, 'policy', policy, 'en');
         setNodeProperty(path, 'cspReportOnly', reportOnly.toString(), 'en');
         publishAndWaitJobEnding(path, ['en']);
