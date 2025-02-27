@@ -65,12 +65,10 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
         final HttpServletResponse response = renderContext.getResponse();
 
         final JCRSiteNode site = renderContext.getSite();
-        final String siteContentSecurityPolicy = site.hasProperty(CSP_PROPERTY) ? site.getProperty(CSP_PROPERTY).getString() : null;
         final JCRNodeWrapper page = renderContext.getMainResource().getNode();
-        final String pageContentSecurityPolicy = page.hasProperty(CSP_PROPERTY) ? page.getProperty(CSP_PROPERTY).getString() : null;
-        final String policyDirectives = Stream.of(siteContentSecurityPolicy, pageContentSecurityPolicy)
-                .filter(Objects::nonNull)
-                .collect(Collectors.joining(CSP_SEPARATOR));
+
+        // use CSP at page-level first, otherwise use the one defined at site-level
+        final String policyDirectives = page.hasProperty(CSP_PROPERTY) ? page.getProperty(CSP_PROPERTY).getString() : site.hasProperty(CSP_PROPERTY) ? site.getProperty(CSP_PROPERTY).getString() : null;
 
         final String nonce = getNonceValue();
 
