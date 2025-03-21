@@ -63,7 +63,7 @@ jobs:
           sonar_token: ${{ secrets.SONAR_TOKEN }}
 
   integration-tests-standalone:
-    uses:  Jahia/jahia-modules-action/.github/workflows/integration-tests.yml@v2
+    uses:  Jahia/jahia-modules-action/.github/workflows/reusable-integration-tests.yml@v2
     needs: build
     secrets: inherit
     with:
