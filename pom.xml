@@ -47,6 +47,7 @@
 
     <properties>
         <jahia-depends />
+        <jahia.plugin.version>6.12</jahia.plugin.version>
         <jahia-module-signature>MCwCFDJW45WcKORAVm9ReqO+dB1XPfDDAhQytDgLj2I0HtZZQZ2LyxX5Eeiu1w==</jahia-module-signature>
     </properties>
 
