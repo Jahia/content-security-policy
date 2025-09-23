@@ -96,6 +96,7 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
             cy.request(`/sites/${SITE_KEY}/${page}.html`).then(response => {
                 expect(response.headers['content-security-policy']).to.equal(`${policy}; report-uri https://www.example.com/csp-report; report-to csp-endpoint`);
                 expect(response.headers['content-security-policy-report-only']).to.be.undefined;
+                // eslint-disable-next-line quotes
                 expect(response.headers['reporting-endpoints']).to.equal(`csp-endpoint="https://www.example.com/csp-report"`);
             });
         });
@@ -124,6 +125,7 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
             cy.request(`/sites/${SITE_KEY}/${page}.html`).then(response => {
                 expect(response.headers['content-security-policy']).to.be.undefined;
                 expect(response.headers['content-security-policy-report-only']).to.equal(`${policy}; report-uri https://www.example.com/csp-report; report-to csp-endpoint`);
+                // eslint-disable-next-line quotes
                 expect(response.headers['reporting-endpoints']).to.equal(`csp-endpoint="https://www.example.com/csp-report"`);
             });
         });
@@ -161,12 +163,14 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
             // Page with page policies
             expect(response.headers['content-security-policy'], 'the header should contain both the site and the page policies').to.equal(`${pagePolicy}; report-uri https://www.example.com/csp-report; report-to csp-endpoint`);
             expect(response.headers['content-security-policy-report-only']).to.be.undefined;
+            // eslint-disable-next-line quotes
             expect(response.headers['reporting-endpoints']).to.equal(`csp-endpoint="https://www.example.com/csp-report"`);
         });
         cy.request(`/sites/${SITE_KEY}/simple.html`).then(response => {
             // Page with only site policy
             expect(response.headers['content-security-policy'], 'the header should only contain the site policy').to.equal(`${sitePolicy}; report-uri https://www.example.com/csp-report; report-to csp-endpoint`);
             expect(response.headers['content-security-policy-report-only']).to.be.undefined;
+            // eslint-disable-next-line quotes
             expect(response.headers['reporting-endpoints']).to.equal(`csp-endpoint="https://www.example.com/csp-report"`);
         });
     });
