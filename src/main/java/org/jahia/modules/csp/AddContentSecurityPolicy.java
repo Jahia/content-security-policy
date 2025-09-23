@@ -31,16 +31,25 @@ import org.jahia.services.render.RenderContext;
 import org.jahia.services.render.Resource;
 import org.jahia.services.render.filter.AbstractFilter;
 import org.jahia.services.render.filter.RenderChain;
+import org.jahia.services.render.filter.RenderFilter;
 import org.jahia.settings.SettingsBean;
+import org.osgi.service.component.annotations.Activate;
+import org.osgi.service.component.annotations.Component;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.servlet.http.HttpServletResponse;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.nio.ByteBuffer;
 import java.util.Base64;
 import java.util.Base64.Encoder;
 import java.util.UUID;
 
+@Component(service = RenderFilter.class)
 public final class AddContentSecurityPolicy extends AbstractFilter {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(AddContentSecurityPolicy.class);
     private static final String CSP_SEPARATOR = ";";
     private static final String CSP_PROPERTY = "policy";
     private static final String CSP_HEADER = "Content-Security-Policy";
@@ -57,6 +66,17 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
         this.cspNoncePlaceHolder = SettingsBean.getInstance().getPropertiesFile().getProperty(CSP_NONCE_PLACEHOLDER_PROP, "XXXXX");
     }
 
+    @Activate
+    public void activate() {
+        setPriority(-999);
+        setApplyOnEditMode(false);
+        setSkipOnAjaxRequest(true);
+        setApplyOnModes("live,preview");
+        setApplyOnConfigurations("page");
+        setSkipOnConfigurations("include,wrapper");
+        setApplyOnTemplateTypes("html,html-*");
+    }
+
     @Override
     public String execute(String previousOut, RenderContext renderContext, Resource resource, RenderChain chain) throws Exception {
         final HttpServletResponse response = renderContext.getResponse();
@@ -70,7 +90,14 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
         final String nonce = getNonceValue();
 
         if (StringUtils.isNotEmpty(policyDirectives)) {
-            final String reportEndpoint = renderContext.getRequest().getContextPath() + resource.getNodePath() + ".contentSecurityPolicyReportOnly.do";
+            String reportEndpoint = renderContext.getRequest().getContextPath() + resource.getNodePath() + ".contentSecurityPolicyReportOnly.do";
+            if (site.hasProperty(ReportOnlyAction.CSP_REPORT_URL) && !site.getProperty(ReportOnlyAction.CSP_REPORT_URL).getString().isEmpty()) {
+                try {
+                    reportEndpoint = new URL(site.getProperty(ReportOnlyAction.CSP_REPORT_URL).getString()).toString();
+                } catch (MalformedURLException e) {
+                    LOGGER.warn("The provided CSP report URL is not valid, using the default one.", e);
+                }
+            }
             response.setHeader(REPORTING_ENDPOINTS_HEADER, CSP_ENDPOINT_NAME + "=\"" + reportEndpoint + "\"");
 
             String contentSecurityPolicy = policyDirectives.replace(CSP_WEB_NONCE_PLACEHOLDER, CSP_WEB_NONCE_PLACEHOLDER + nonce) +

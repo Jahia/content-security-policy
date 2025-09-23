@@ -34,13 +34,23 @@ import org.jahia.services.content.decorator.JCRSiteNode;
 import org.jahia.services.render.RenderContext;
 import org.jahia.services.render.Resource;
 import org.jahia.services.render.URLResolver;
+import org.osgi.service.component.annotations.Activate;
+import org.osgi.service.component.annotations.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+@Component(service = Action.class)
 public final class ReportOnlyAction extends Action {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ReportOnlyAction.class);
     public static final String CSP_REPORT_ONLY = "cspReportOnly";
+    public static final String CSP_REPORT_URL = "cspReportUrl";
+
+    @Activate
+    public void activate() {
+        setName("contentSecurityPolicyReportOnly");
+        setRequireAuthenticatedUser(false);
+    }
 
     @Override
     public ActionResult doExecute(HttpServletRequest req, RenderContext renderContext, Resource resource, JCRSessionWrapper session, Map<String, List<String>> parameters, URLResolver urlResolver) throws Exception {

@@ -15,18 +15,18 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
         enableModule('content-security-policy', SITE_KEY);
     }
 
-    function configureCSPPolicyGlobally(policy: string, reportOnly = false) {
+    function configureCSPPolicyGlobally(policy: string, reportUrl: string, reportOnly = false) {
         const path = `/sites/${SITE_KEY}`;
         addMixins(path, ['jmix:siteContentSecurityPolicy']);
         setNodeProperty(path, 'policy', policy, 'en');
+        setNodeProperty(path, 'cspReportUrl', reportUrl, 'en');
         setNodeProperty(path, 'cspReportOnly', reportOnly.toString(), 'en');
     }
 
-    function configureCSPPolicyForPage(page: string, policy: string, reportOnly = false) {
+    function configureCSPPolicyForPage(page: string, policy: string) {
         const path = `/sites/${SITE_KEY}/${page}`;
         addMixins(path, ['jmix:pageContentSecurityPolicy']);
         setNodeProperty(path, 'policy', policy, 'en');
-        setNodeProperty(path, 'cspReportOnly', reportOnly.toString(), 'en');
         publishAndWaitJobEnding(path, ['en']);
     }
 
@@ -51,9 +51,9 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
         });
     });
 
-    it('GIVEN CSP configured at the site level with an empty policy WHEN loading a page THEN the response headers are not set', () => {
+    it('GIVEN CSP configured at the site level with an empty policy and no custom url WHEN loading a page THEN the response headers are not set', () => {
         enableCSPModule();
-        configureCSPPolicyGlobally('');
+        configureCSPPolicyGlobally('', '');
 
         cy.request('/sites/' + SITE_KEY + '/home.html').then(response => {
             expect(response.headers['content-security-policy']).to.be.undefined;
@@ -62,10 +62,21 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
         });
     });
 
-    it('GIVEN CSP configured at the site level with a policy WHEN loading pages THEN the response headers are correctly set for all pages', () => {
+    it('GIVEN CSP configured at the site level with an empty policy and defined custom url WHEN loading a page THEN the response headers are not set', () => {
+        enableCSPModule();
+        configureCSPPolicyGlobally('', 'https://www.example.com/csp-report');
+
+        cy.request('/sites/' + SITE_KEY + '/home.html').then(response => {
+            expect(response.headers['content-security-policy']).to.be.undefined;
+            expect(response.headers['content-security-policy-report-only']).to.be.undefined;
+            expect(response.headers['reporting-endpoints']).to.be.undefined;
+        });
+    });
+
+    it('GIVEN CSP configured at the site level with a policy and empty custom url WHEN loading pages THEN the response headers with default report action are correctly set for all pages', () => {
         enableCSPModule();
         const policy = 'script-src \'self\' js.example.com';
-        configureCSPPolicyGlobally(policy);
+        configureCSPPolicyGlobally(policy, '');
 
         PAGES.forEach(page => {
             cy.request(`/sites/${SITE_KEY}/${page}.html`).then(response => {
@@ -76,10 +87,24 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
         });
     });
 
-    it('GIVEN CSP configured at the site level with a policy and report only WHEN loading pages THEN the response headers are correctly set for all pages', () => {
+    it('GIVEN CSP configured at the site level with a policy and defined custom url WHEN loading pages THEN the response headers with defined report url are correctly set for all pages', () => {
+        enableCSPModule();
+        const policy = 'script-src \'self\' js.example.com';
+        configureCSPPolicyGlobally(policy, 'https://www.example.com/csp-report');
+
+        PAGES.forEach(page => {
+            cy.request(`/sites/${SITE_KEY}/${page}.html`).then(response => {
+                expect(response.headers['content-security-policy']).to.equal(`${policy}; report-uri https://www.example.com/csp-report; report-to csp-endpoint`);
+                expect(response.headers['content-security-policy-report-only']).to.be.undefined;
+                expect(response.headers['reporting-endpoints']).to.equal(`csp-endpoint="https://www.example.com/csp-report"`);
+            });
+        });
+    });
+
+    it('GIVEN CSP configured at the site level with a policy and empty custom url and report only WHEN loading pages THEN the response headers are correctly set for all pages', () => {
         enableCSPModule();
         const policy = 'default-src \'self\'';
-        configureCSPPolicyGlobally(policy, true);
+        configureCSPPolicyGlobally(policy, '', true);
 
         PAGES.forEach(page => {
             cy.request(`/sites/${SITE_KEY}/${page}.html`).then(response => {
@@ -90,10 +115,24 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
         });
     });
 
+    it('GIVEN CSP configured at the site level with a policy and defined custom url and report only WHEN loading pages THEN the response headers with defined report url are correctly set for all pages', () => {
+        enableCSPModule();
+        const policy = 'default-src \'self\'';
+        configureCSPPolicyGlobally(policy, 'https://www.example.com/csp-report', true);
+
+        PAGES.forEach(page => {
+            cy.request(`/sites/${SITE_KEY}/${page}.html`).then(response => {
+                expect(response.headers['content-security-policy']).to.be.undefined;
+                expect(response.headers['content-security-policy-report-only']).to.equal(`${policy}; report-uri https://www.example.com/csp-report; report-to csp-endpoint`);
+                expect(response.headers['reporting-endpoints']).to.equal(`csp-endpoint="https://www.example.com/csp-report"`);
+            });
+        });
+    });
+
     it('GIVEN CSP configured at the site level and at the page level WHEN loading pages THEN the page-level policies replace the site-level policies', () => {
         enableCSPModule();
         const sitePolicy = 'script-src \'self\' js.example.com';
-        configureCSPPolicyGlobally(sitePolicy);
+        configureCSPPolicyGlobally(sitePolicy, '');
         const pagePolicy = 'img-src \'none\'; style-src \'none\'';
         configureCSPPolicyForPage('home', pagePolicy);
 
@@ -111,10 +150,31 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
         });
     });
 
+    it('GIVEN CSP configured at the site level and at the page level and defined custom url WHEN loading pages THEN the page-level policies replace the site-level policies but keep the defined custom report url', () => {
+        enableCSPModule();
+        const sitePolicy = 'script-src \'self\' js.example.com';
+        configureCSPPolicyGlobally(sitePolicy, 'https://www.example.com/csp-report');
+        const pagePolicy = 'img-src \'none\'; style-src \'none\'';
+        configureCSPPolicyForPage('home', pagePolicy);
+
+        cy.request(`/sites/${SITE_KEY}/home.html`).then(response => {
+            // Page with page policies
+            expect(response.headers['content-security-policy'], 'the header should contain both the site and the page policies').to.equal(`${pagePolicy}; report-uri https://www.example.com/csp-report; report-to csp-endpoint`);
+            expect(response.headers['content-security-policy-report-only']).to.be.undefined;
+            expect(response.headers['reporting-endpoints']).to.equal(`csp-endpoint="https://www.example.com/csp-report"`);
+        });
+        cy.request(`/sites/${SITE_KEY}/simple.html`).then(response => {
+            // Page with only site policy
+            expect(response.headers['content-security-policy'], 'the header should only contain the site policy').to.equal(`${sitePolicy}; report-uri https://www.example.com/csp-report; report-to csp-endpoint`);
+            expect(response.headers['content-security-policy-report-only']).to.be.undefined;
+            expect(response.headers['reporting-endpoints']).to.equal(`csp-endpoint="https://www.example.com/csp-report"`);
+        });
+    });
+
     it('GIVEN CSP configured to restrict img src WHEN loading a page THEN only the legit resources should be loaded by the browser', () => {
         enableCSPModule();
         const sitePolicy = 'img-src example.com';
-        configureCSPPolicyGlobally(sitePolicy);
+        configureCSPPolicyGlobally(sitePolicy, '');
         const legitResource = 'https://example.com/legit.jpg';
         const forbiddenResource = 'https://hacker.com/forbidden.jpg';
         cy.intercept('**/*.jpg', {statusCode: 200}).as('images');
