@@ -9,7 +9,7 @@ content:
 
 ### Overview
 
-The purpose of this module is to allow the definition of a Content Security Policy for a website inside Digital Experience Manager. For more information about the Content Security Policy, please refer to this URL: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy
+The purpose of this module is to allow the definition of a Content Security Policy for a website inside Jahia. For more information about the Content Security Policy, please refer to this URL: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy
 
 ### Installation
 
