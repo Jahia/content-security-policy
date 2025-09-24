@@ -41,14 +41,14 @@ Once enabled, you can define a Content Security Policy at the site level or for 
 ### How to only report the CSP violations during a test phase?
 
 :::info
-This options is only available at the site level configuration.
+This option is only available at the site level configuration.
 :::
 You have to check the box Only report CSP violations, and the violations will be logged in the Jahia log files or sent to the URL provided in the field Report violations to this URL.
 
 ### How to report the CSP violations to a specific URL?
 
 :::info
-This options is only available at the site level configuration.
+This option is only available at the site level configuration.
 :::
 You have to provide the URL in the field Report violations to this URL.
 
