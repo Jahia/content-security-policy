@@ -5,6 +5,7 @@
  extends = jnt:virtualsite
  itemtype = options
  - policy (string,textarea) nofulltext indexed=no
+ - cspReportUrl (string) indexed=no
  - cspReportOnly (boolean) = false indexed=no
 
 

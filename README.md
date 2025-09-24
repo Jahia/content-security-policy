@@ -5,9 +5,9 @@
 content-security-policy
 =====================
 
-The purpose of this module is to allow the definition of a Content Security Policy for a website inside [Digital Experience Manager](https://www.jahia.com).
+The purpose of this module is to allow the definition of a Content Security Policy for a website inside [Jahia](https://www.jahia.com).
 
-For more details about installation and usage, please refer to the [Jahia store](https://store.jahia.com/contents/modules-repository/org/jahia/modules/content-security-policy.html).
+For more details about installation and usage, please refer to the [Jahia academy](https://academy.jahia.com/documentation/jahia/8_2/developer/cms-security/content-security-policy).
 
 ## Open-Source
 

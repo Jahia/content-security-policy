@@ -48,7 +48,6 @@
     <properties>
         <jahia-depends />
         <jahia-module-signature>MCwCFDJW45WcKORAVm9ReqO+dB1XPfDDAhQytDgLj2I0HtZZQZ2LyxX5Eeiu1w==</jahia-module-signature>
-        <require-capability>osgi.extender;filter:="(osgi.extender=org.jahia.bundles.blueprint.extender.config)"</require-capability>
     </properties>
 
     <repositories>
@@ -74,9 +73,7 @@
                 <extensions>true</extensions>
                 <configuration>
                     <instructions>
-                        <Export-Package>
-                            org.jahia.modules.csp.taglib
-                        </Export-Package>
+                        <_dsannotations>*</_dsannotations>
                     </instructions>
                 </configuration>
             </plugin>
