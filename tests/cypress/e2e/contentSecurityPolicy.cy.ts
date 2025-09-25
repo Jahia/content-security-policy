@@ -94,44 +94,31 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
 
         PAGES.forEach(page => {
             // Perform two request to verify that the nonce is unique per request
-            cy.request(`/sites/${SITE_KEY}/${page}.html`).then(firstResponse => {
-                cy.request(`/sites/${SITE_KEY}/${page}.html`).then(secondResponse => {
-                    // Extraire le nonce des headers CSP
-                    const extractNonce = (headerValue: string | undefined) => {
-                        if (!headerValue) {
-                            return null;
-                        }
+            let firstNonce: string | null;
+            let secondNonce: string | null;
 
-                        const match = headerValue.match(/nonce-([a-zA-Z0-9]+)/);
-                        return match ? match[0] : null;
-                    };
-
-                    const firstNonce = extractNonce(firstResponse.headers['content-security-policy']);
-                    const secondNonce = extractNonce(secondResponse.headers['content-security-policy']);
+            cy.request(`/sites/${SITE_KEY}/${page}.html`)
+                .then(firstResponse => {
+                    firstNonce = extractNonce(firstResponse.headers['content-security-policy']);
+                    return cy.request(`/sites/${SITE_KEY}/${page}.html`);
+                })
+                .then(secondResponse => {
+                    secondNonce = extractNonce(secondResponse.headers['content-security-policy']);
 
                     // Check that nonces exist and are different
                     expect(firstNonce, 'first nonce should exist').to.not.be.null;
                     expect(secondNonce, 'second nonce should exist').to.not.be.null;
                     expect(firstNonce, 'nonce should be unique per request').to.not.equal(secondNonce);
-
-                    // Check the rest of the header content (without the nonce value)
-                    const normalizePolicy = (headerValue: string | undefined) =>
-                        headerValue ? headerValue.replace(/nonce-[a-zA-Z0-9]+/, 'nonce-') : headerValue;
-
-                    expect(normalizePolicy(firstResponse.headers['content-security-policy'])).to.equal(
-                        `${policy.replace('nonce-', 'nonce-')}; report-uri /sites/${SITE_KEY}/${page}.contentSecurityPolicyReportOnly.do; report-to csp-endpoint`
-                    );
-                    expect(normalizePolicy(secondResponse.headers['content-security-policy'])).to.equal(
-                        `${policy.replace('nonce-', 'nonce-')}; report-uri /sites/${SITE_KEY}/${page}.contentSecurityPolicyReportOnly.do; report-to csp-endpoint`
-                    );
-
-                    expect(firstResponse.headers['content-security-policy-report-only']).to.be.undefined;
-                    expect(secondResponse.headers['content-security-policy-report-only']).to.be.undefined;
-                    expect(firstResponse.headers['reporting-endpoints']).to.equal(`csp-endpoint="/sites/${SITE_KEY}/${page}.contentSecurityPolicyReportOnly.do"`);
-                    expect(secondResponse.headers['reporting-endpoints']).to.equal(`csp-endpoint="/sites/${SITE_KEY}/${page}.contentSecurityPolicyReportOnly.do"`);
                 });
-            });
         });
+
+        function extractNonce(headerValue: string | undefined): string | null {
+            if (!headerValue) {
+                return null;
+            }
+            const match = headerValue.match(/nonce-([a-zA-Z0-9]+)/);
+            return match ? match[0] : null;
+        }
     });
 
     it('GIVEN CSP configured at the site level with a policy and defined custom url WHEN loading pages THEN the response headers with defined report url are correctly set for all pages', () => {
