@@ -98,7 +98,9 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
                 cy.request(`/sites/${SITE_KEY}/${page}.html`).then(secondResponse => {
                     // Extraire le nonce des headers CSP
                     const extractNonce = (headerValue: string | undefined) => {
-                        if (!headerValue) return null;
+                        if (!headerValue) {
+                            return null;
+                        }
                         const match = headerValue.match(/nonce-([a-zA-Z0-9]+)/);
                         return match ? match[0] : null;
                     };
@@ -113,13 +115,13 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
 
                     // Check the rest of the header content (without the nonce value)
                     const normalizePolicy = (headerValue: string | undefined) =>
-                        headerValue ? headerValue.replace(/nonce-[a-zA-Z0-9]+/, 'nonce-xxxxxx') : headerValue;
+                        headerValue ? headerValue.replace(/nonce-[a-zA-Z0-9]+/, 'nonce-') : headerValue;
 
                     expect(normalizePolicy(firstResponse.headers['content-security-policy'])).to.equal(
-                        `${policy.replace('nonce-', 'nonce-xxxxxx')}; report-uri /sites/${SITE_KEY}/${page}.contentSecurityPolicyReportOnly.do; report-to csp-endpoint`
+                        `${policy.replace('nonce-', 'nonce-')}; report-uri /sites/${SITE_KEY}/${page}.contentSecurityPolicyReportOnly.do; report-to csp-endpoint`
                     );
                     expect(normalizePolicy(secondResponse.headers['content-security-policy'])).to.equal(
-                        `${policy.replace('nonce-', 'nonce-xxxxxx')}; report-uri /sites/${SITE_KEY}/${page}.contentSecurityPolicyReportOnly.do; report-to csp-endpoint`
+                        `${policy.replace('nonce-', 'nonce-')}; report-uri /sites/${SITE_KEY}/${page}.contentSecurityPolicyReportOnly.do; report-to csp-endpoint`
                     );
 
                     expect(firstResponse.headers['content-security-policy-report-only']).to.be.undefined;
