@@ -87,6 +87,41 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
         });
     });
 
+    it('GIVEN CSP configured at the site level with a policy using nonce WHEN loading pages THEN the response headers contains a unique nonce value', () => {
+        enableCSPModule();
+        const policy = 'script-src \'nonce-\' js.example.com';
+        configureCSPPolicyGlobally(policy, '');
+
+        PAGES.forEach(page => {
+            // Perform two request to verify that the nonce is unique per request
+            let firstNonce: string | null;
+            let secondNonce: string | null;
+
+            cy.request(`/sites/${SITE_KEY}/${page}.html`)
+                .then(firstResponse => {
+                    firstNonce = extractNonce(firstResponse.headers['content-security-policy']);
+                    return cy.request(`/sites/${SITE_KEY}/${page}.html`);
+                })
+                .then(secondResponse => {
+                    secondNonce = extractNonce(secondResponse.headers['content-security-policy']);
+
+                    // Check that nonces exist and are different
+                    expect(firstNonce, 'first nonce should exist').to.not.be.null;
+                    expect(secondNonce, 'second nonce should exist').to.not.be.null;
+                    expect(firstNonce, 'nonce should be unique per request').to.not.equal(secondNonce);
+                });
+        });
+
+        function extractNonce(headerValue: string | undefined): string | null {
+            if (!headerValue) {
+                return null;
+            }
+
+            const match = headerValue.match(/'nonce-([a-zA-Z0-9_-]+)'/);
+            return match ? match[1] : null;
+        }
+    });
+
     it('GIVEN CSP configured at the site level with a policy and defined custom url WHEN loading pages THEN the response headers with defined report url are correctly set for all pages', () => {
         enableCSPModule();
         const policy = 'script-src \'self\' js.example.com';

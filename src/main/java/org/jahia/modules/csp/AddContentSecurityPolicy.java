@@ -56,14 +56,11 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
     private static final String CSP_REPORT_ONLY_HEADER = "Content-Security-Policy-Report-Only";
     private static final String REPORTING_ENDPOINTS_HEADER = "Reporting-Endpoints";
     private static final String CSP_WEB_NONCE_PLACEHOLDER = "nonce-";
-    public static final String CSP_NONCE_PLACEHOLDER_PROP = "contentSecurityPolicy.nonce.placeHolder";
     private static final String CSP_ENDPOINT_NAME = "csp-endpoint";
     private final Encoder encoder;
-    private final String cspNoncePlaceHolder;
 
     public AddContentSecurityPolicy() {
         this.encoder = Base64.getUrlEncoder();
-        this.cspNoncePlaceHolder = SettingsBean.getInstance().getPropertiesFile().getProperty(CSP_NONCE_PLACEHOLDER_PROP, "XXXXX");
     }
 
     @Activate
@@ -85,7 +82,9 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
         final JCRNodeWrapper page = renderContext.getMainResource().getNode();
 
         // use CSP at page-level first, otherwise use the one defined at site-level
-        final String policyDirectives = page.hasProperty(CSP_PROPERTY) ? page.getProperty(CSP_PROPERTY).getString() : site.hasProperty(CSP_PROPERTY) ? site.getProperty(CSP_PROPERTY).getString() : null;
+        final String policyDirectives;
+        if (page.hasProperty(CSP_PROPERTY)) policyDirectives = page.getProperty(CSP_PROPERTY).getString();
+        else policyDirectives = site.hasProperty(CSP_PROPERTY) ? site.getProperty(CSP_PROPERTY).getString() : null;
 
         final String nonce = getNonceValue();
 
@@ -114,7 +113,11 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
         }
 
         if (site.getInstalledModules().contains("content-security-policy")) {
-            return previousOut.replaceAll("nonce=\"" + cspNoncePlaceHolder + "\"", "nonce=\"" + nonce + "\"");
+            // Remove any existing nonce attributes from <script> tags
+            String cleanedOut = previousOut.replaceAll("(?i)<script([^>]*?)\\snonce\\s*=\\s*(['\"]).*?\\2", "<script$1");
+            // Replace all <script> tags with a nonce attribute
+            String nonceScriptTag = "<script nonce=\"" + nonce + "\"";
+            return cleanedOut.replaceAll("(?i)<script([\\s>])", nonceScriptTag + "$1");
         }
 
         return previousOut;
