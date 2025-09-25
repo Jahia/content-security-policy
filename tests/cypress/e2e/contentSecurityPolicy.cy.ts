@@ -116,6 +116,7 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
             if (!headerValue) {
                 return null;
             }
+
             const match = headerValue.match(/'nonce-([a-zA-Z0-9_-]+)'/);
             return match ? match[1] : null;
         }
