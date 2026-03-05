@@ -82,15 +82,20 @@ public final class ReportOnlyAction extends Action {
                     final String userAgent = req.getHeader(HEADER_USER_AGENT) == null ? "unknown user agent" : req.getHeader(HEADER_USER_AGENT);
                     LOGGER.debug(String.format("%s request content: %s", LOG_MSG_BEGIN, report));
                     try {
-                        final String[] violation;
+                        String[] violation = new String[]{MSG_UNKNOWN_DOCUMENT_URL, MSG_UNKNOWN_EFFECTIVE_DIRECTIVE, MSG_UNKNOWN_URL};
                         // CSP report from Firefox as of 2026/03/05
+                        final JSONObject cspData;
                         if (report.startsWith("{")) {
-                            violation = parseReport(new JSONObject(report), KEY_CSP_REPORT, KEY_DOCUMENT_URI, KEY_EFF_DIR_FIREFOX, KEY_BLOCKED_URI);
-                        } // CSP report from Chrome as of 2026/03/05
-                        else if (report.startsWith("[")) {
-                            violation = parseReport(new JSONArray(report).getJSONObject(0), KEY_BODY, KEY_DOCUMENT_URL, KEY_EFF_DIR_CHROME, KEY_BLOCKED_URL);
+                            cspData = new JSONObject(report);
+                        } else if (report.startsWith("[")) {
+                            cspData = new JSONArray(report).getJSONObject(0);
                         } else {
                             return ActionResult.BAD_REQUEST;
+                        }
+                        if (cspData.has(KEY_CSP_REPORT)) {
+                            violation = parseReport(cspData, KEY_CSP_REPORT, KEY_DOCUMENT_URI, KEY_EFF_DIR_FIREFOX, KEY_BLOCKED_URI);
+                        } else if (cspData.has(KEY_BODY)) {
+                            violation = parseReport(new JSONArray(report).getJSONObject(0), KEY_BODY, KEY_DOCUMENT_URL, KEY_EFF_DIR_CHROME, KEY_BLOCKED_URL);
                         }
                         LOGGER.warn(String.format("%s %s blocked for %s on %s with user-agent \"%s\"", LOG_MSG_BEGIN, violation[2], violation[1], violation[0], userAgent));
                         return ActionResult.OK;
