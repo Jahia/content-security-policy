@@ -76,7 +76,7 @@ public final class ReportOnlyAction extends Action {
         if ("application/csp-report".equals(req.getContentType()) || "application/reports+json".equals(req.getContentType())) {
             final JCRSiteNode site = renderContext.getSite();
             if ((site.hasProperty(PROP_CSP_REPORT_ONLY) && site.getProperty(PROP_CSP_REPORT_ONLY).getBoolean())
-                    || (site.hasProperty(PROP_CSP_REPORT_URL) && site.getPropertyAsString(PROP_CSP_REPORT_URL).contains(ACTION_NAME))) {
+                    || (site.hasProperty(PROP_CSP_REPORT_URL) && site.getPropertyAsString(PROP_CSP_REPORT_URL).endsWith(ACTION_NAME + ".do"))) {
                 final String report = IOUtils.toString(req.getInputStream(), StandardCharsets.UTF_8);
                 if (report != null && !report.isBlank()) {
                     final String userAgent = req.getHeader(HEADER_USER_AGENT) == null ? "unknown user agent" : req.getHeader(HEADER_USER_AGENT);
