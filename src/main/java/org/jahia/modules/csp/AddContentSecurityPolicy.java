@@ -32,7 +32,6 @@ import org.jahia.services.render.Resource;
 import org.jahia.services.render.filter.AbstractFilter;
 import org.jahia.services.render.filter.RenderChain;
 import org.jahia.services.render.filter.RenderFilter;
-import org.jahia.settings.SettingsBean;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
 import org.slf4j.Logger;
@@ -90,9 +89,9 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
 
         if (StringUtils.isNotEmpty(policyDirectives)) {
             String reportEndpoint = renderContext.getRequest().getContextPath() + resource.getNodePath() + ".contentSecurityPolicyReportOnly.do";
-            if (site.hasProperty(ReportOnlyAction.CSP_REPORT_URL) && !site.getProperty(ReportOnlyAction.CSP_REPORT_URL).getString().isEmpty()) {
+            if (site.hasProperty(ReportOnlyAction.PROP_CSP_REPORT_URL) && !site.getProperty(ReportOnlyAction.PROP_CSP_REPORT_URL).getString().isEmpty()) {
                 try {
-                    reportEndpoint = new URL(site.getProperty(ReportOnlyAction.CSP_REPORT_URL).getString()).toString();
+                    reportEndpoint = new URL(site.getProperty(ReportOnlyAction.PROP_CSP_REPORT_URL).getString()).toString();
                 } catch (MalformedURLException e) {
                     LOGGER.warn("The provided CSP report URL is not valid, using the default one.", e);
                 }
@@ -104,7 +103,7 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
                     CSP_SEPARATOR + " report-to " + CSP_ENDPOINT_NAME;
 
             final String cspHeader;
-            if (site.hasProperty(ReportOnlyAction.CSP_REPORT_ONLY) && site.getProperty(ReportOnlyAction.CSP_REPORT_ONLY).getBoolean()) {
+            if (site.hasProperty(ReportOnlyAction.PROP_CSP_REPORT_ONLY) && site.getProperty(ReportOnlyAction.PROP_CSP_REPORT_ONLY).getBoolean()) {
                 cspHeader = CSP_REPORT_ONLY_HEADER;
             } else {
                 cspHeader = CSP_HEADER;
