@@ -26,6 +26,8 @@ package org.jahia.modules.csp.actions;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.json.JSONException;
 import org.junit.jupiter.api.DisplayName;
@@ -295,5 +297,82 @@ class ReportOnlyActionTest {
 
         // Assert
         assertThat(violation.isFromBrowserExtension()).isTrue();
+    }
+
+    @Test
+    @DisplayName("caps a batched Reporting API array at MAX_REPORTS_PER_BATCH entries (log-flooding DoS)")
+    void parseCspReport_oversizedBatch_isCapped() {
+        // Arrange — an attacker packs far more entries than any real browser batches
+        StringBuilder report = new StringBuilder("[");
+        for (int i = 0; i < ReportOnlyAction.MAX_REPORTS_PER_BATCH + 30; i++) {
+            if (i > 0) {
+                report.append(',');
+            }
+            report.append("{\"body\":{\"documentURL\":\"https://example.com/").append(i)
+                    .append("\",\"effectiveDirective\":\"script-src\",\"blockedURL\":\"https://evil.com/x.js\"}}");
+        }
+        report.append(']');
+
+        // Act
+        List<CspViolation> violations = ReportOnlyAction.parseCspReport(report.toString());
+
+        // Assert
+        assertThat(violations).hasSize(ReportOnlyAction.MAX_REPORTS_PER_BATCH);
+    }
+
+    @Test
+    @DisplayName("strips CRLF and control characters from report fields before they can reach the log (log forging)")
+    void parseCspReport_crlfInFields_isSanitized() {
+        // Arrange — blocked-uri carrying a forged extra log line
+        String report = "{\"csp-report\":{"
+                + "\"document-uri\":\"https://example.com/page\","
+                + "\"effective-directive\":\"script-src\","
+                + "\"blocked-uri\":\"https://evil.com/\\r\\nINFO fake admin login\"}}";
+
+        // Act
+        CspViolation violation = ReportOnlyAction.parseCspReport(report).get(0);
+        String message = violation.toLogMessage("UA\r\nFORGED");
+
+        // Assert — no CR/LF anywhere in the final log message
+        assertThat(message).doesNotContain("\r").doesNotContain("\n");
+        assertThat(violation.getBlockedUrl()).isEqualTo("https://evil.com/ INFO fake admin login");
+    }
+
+    @Test
+    @DisplayName("truncates over-long report fields (single-report log flooding)")
+    void sanitizeForLog_overlongValue_isTruncated() {
+        // Arrange — a field far larger than any legitimate URL
+        String huge = "a".repeat(5000);
+
+        // Act
+        String sanitized = CspViolation.sanitizeForLog(huge);
+
+        // Assert
+        assertThat(sanitized).hasSize(1024 + 3).endsWith("...");
+    }
+
+    @Test
+    @DisplayName("accepts the CSP content types with or without a charset parameter")
+    void isCspReportContentType_recognisesBaseTypeAndParameters() {
+        assertThat(ReportOnlyAction.isCspReportContentType("application/csp-report")).isTrue();
+        assertThat(ReportOnlyAction.isCspReportContentType("application/csp-report; charset=UTF-8")).isTrue();
+        assertThat(ReportOnlyAction.isCspReportContentType("application/reports+json")).isTrue();
+        assertThat(ReportOnlyAction.isCspReportContentType("application/reports+json;charset=utf-8")).isTrue();
+        assertThat(ReportOnlyAction.isCspReportContentType("text/plain")).isFalse();
+        assertThat(ReportOnlyAction.isCspReportContentType(null)).isFalse();
+    }
+
+    @Test
+    @DisplayName("reads a body within the size cap and rejects one above it (memory-exhaustion DoS)")
+    void readBoundedBody_enforcesSizeCap() throws Exception {
+        // Arrange
+        byte[] small = "{\"csp-report\":{}}".getBytes(StandardCharsets.UTF_8);
+        byte[] oversized = new byte[ReportOnlyAction.MAX_REPORT_BODY_BYTES + 1];
+
+        // Act / Assert
+        assertThat(ReportOnlyAction.readBoundedBody(new ByteArrayInputStream(small), ReportOnlyAction.MAX_REPORT_BODY_BYTES))
+                .isEqualTo("{\"csp-report\":{}}");
+        assertThat(ReportOnlyAction.readBoundedBody(new ByteArrayInputStream(oversized), ReportOnlyAction.MAX_REPORT_BODY_BYTES))
+                .isNull();
     }
 }

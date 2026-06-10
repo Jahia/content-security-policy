@@ -23,12 +23,14 @@
  */
 package org.jahia.modules.csp.actions;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
-import org.apache.commons.io.IOUtils;
 import org.jahia.bin.Action;
 import org.jahia.bin.ActionResult;
 import org.jahia.services.content.JCRSessionWrapper;
@@ -59,6 +61,15 @@ public final class ReportOnlyAction extends Action {
     public static final String PROP_CSP_REPORT_ONLY = "cspReportOnly";
     public static final String PROP_CSP_REPORT_URL = "cspReportUrl";
 
+    /** Hard cap on the request body size; a real CSP report is typically under 2 KB. */
+    static final int MAX_REPORT_BODY_BYTES = 64 * 1024;
+    /** Hard cap on the number of violations processed from a single Reporting API batch. */
+    static final int MAX_REPORTS_PER_BATCH = 20;
+    /** HTTP 429; not defined as a constant in javax.servlet's HttpServletResponse. */
+    private static final int SC_TOO_MANY_REQUESTS = 429;
+    /** Per-client-IP throttle for this unauthenticated endpoint; generous for real browsers, which batch reports. */
+    private static final SimpleRateLimiter RATE_LIMITER = new SimpleRateLimiter(30, 60_000L, 10_000);
+
     /** Field names for the legacy {@code application/csp-report} payload (Firefox, kebab-case). */
     private static final ReportKeys FIREFOX_KEYS = new ReportKeys(
             "document-uri", "effective-directive", "violated-directive", "blocked-uri",
@@ -76,15 +87,24 @@ public final class ReportOnlyAction extends Action {
 
     @Override
     public ActionResult doExecute(HttpServletRequest req, RenderContext renderContext, Resource resource, JCRSessionWrapper session, Map<String, List<String>> parameters, URLResolver urlResolver) throws Exception {
-        LOGGER.debug(String.format("%s request content-type: %s", LOG_MSG_BEGIN, req.getContentType()));
-        if (CONTENT_TYPE_CSP_REPORT.equals(req.getContentType()) || CONTENT_TYPE_REPORTS_JSON.equals(req.getContentType())) {
+        LOGGER.debug(String.format("%s request content-type: %s", LOG_MSG_BEGIN, CspViolation.sanitizeForLog(req.getContentType())));
+        if (isCspReportContentType(req.getContentType())) {
             final JCRSiteNode site = renderContext.getSite();
             if ((site.hasProperty(PROP_CSP_REPORT_ONLY) && site.getProperty(PROP_CSP_REPORT_ONLY).getBoolean())
                     || (site.hasProperty(PROP_CSP_REPORT_URL) && site.getPropertyAsString(PROP_CSP_REPORT_URL).endsWith(ACTION_NAME + ".do"))) {
-                final String report = IOUtils.toString(req.getInputStream(), StandardCharsets.UTF_8);
-                if (report != null && !report.isBlank()) {
+                // Unauthenticated endpoint: throttle per client before reading the body.
+                if (!RATE_LIMITER.allow(req.getRemoteAddr(), System.currentTimeMillis())) {
+                    return new ActionResult(SC_TOO_MANY_REQUESTS);
+                }
+                final String report = readBoundedBody(req.getInputStream(), MAX_REPORT_BODY_BYTES);
+                if (report == null) {
+                    // Oversized body: a real CSP report is orders of magnitude below the cap.
+                    LOGGER.debug(String.format("%s request body exceeds %d bytes, rejected", LOG_MSG_BEGIN, MAX_REPORT_BODY_BYTES));
+                    return ActionResult.BAD_REQUEST;
+                }
+                if (!report.isBlank()) {
                     final String userAgent = req.getHeader(HEADER_USER_AGENT) == null ? MSG_UNKNOWN_USER_AGENT : req.getHeader(HEADER_USER_AGENT);
-                    LOGGER.debug(String.format("%s request content: %s", LOG_MSG_BEGIN, report));
+                    LOGGER.debug(String.format("%s request content: %s", LOG_MSG_BEGIN, CspViolation.sanitizeForLog(report)));
                     try {
                         final List<CspViolation> violations = parseCspReport(report);
                         if (violations == null || violations.isEmpty()) {
@@ -129,13 +149,50 @@ public final class ReportOnlyAction extends Action {
             violations.add(parseSingleReport(new JSONObject(report)));
         } else if (report.startsWith("[")) {
             final JSONArray reports = new JSONArray(report);
-            for (int i = 0; i < reports.length(); i++) {
+            // Cap the batch: an attacker can pack hundreds of minimal entries into one body,
+            // turning each into a WARN line (log flooding) — no real browser batches that many.
+            final int count = Math.min(reports.length(), MAX_REPORTS_PER_BATCH);
+            if (reports.length() > count) {
+                LOGGER.debug(String.format("%s batch of %d reports truncated to %d", LOG_MSG_BEGIN, reports.length(), count));
+            }
+            for (int i = 0; i < count; i++) {
                 violations.add(parseSingleReport(reports.getJSONObject(i)));
             }
         } else {
             return null;
         }
         return violations;
+    }
+
+    /**
+     * Matches the base MIME type, ignoring parameters: some browsers send
+     * {@code application/csp-report; charset=UTF-8}, which an exact comparison would silently drop.
+     */
+    static boolean isCspReportContentType(String contentType) {
+        if (contentType == null) {
+            return false;
+        }
+        final int separator = contentType.indexOf(';');
+        final String baseType = (separator >= 0 ? contentType.substring(0, separator) : contentType).trim();
+        return CONTENT_TYPE_CSP_REPORT.equals(baseType) || CONTENT_TYPE_REPORTS_JSON.equals(baseType);
+    }
+
+    /**
+     * Reads the request body up to {@code maxBytes}. Returns {@code null} when the stream holds more —
+     * an unauthenticated client must not be able to make the server buffer an arbitrarily large body
+     * (chunked encoding bypasses any Content-Length based check).
+     */
+    static String readBoundedBody(InputStream input, int maxBytes) throws IOException {
+        final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        final byte[] chunk = new byte[8192];
+        int read;
+        while ((read = input.read(chunk)) != -1) {
+            if (buffer.size() + read > maxBytes) {
+                return null;
+            }
+            buffer.write(chunk, 0, read);
+        }
+        return new String(buffer.toByteArray(), StandardCharsets.UTF_8);
     }
 
     private static CspViolation parseSingleReport(JSONObject report) throws JSONException {

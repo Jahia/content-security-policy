@@ -44,7 +44,11 @@ import java.net.URL;
 import java.nio.ByteBuffer;
 import java.util.Base64;
 import java.util.Base64.Encoder;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Component(service = RenderFilter.class)
 public final class AddContentSecurityPolicy extends AbstractFilter {
@@ -62,6 +66,13 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
     private static final String REPORT_TO_DIRECTIVE = "report-to";
     private static final String DEFAULT_REPORT_ACTION_SUFFIX = ".contentSecurityPolicyReportOnly.do";
     private static final String[] NONCEABLE_TAGS = {"script", "style", "link"};
+    // Patterns are compiled once per tag at class load: String.replaceAll would recompile them on
+    // every page render. The nonce-value part uses [^'"]* (not .*?) to rule out regex backtracking
+    // blow-ups on adversarial markup.
+    private static final Map<String, Pattern> STRIP_NONCE_PATTERNS =
+            compileNoncePatterns("(?i)<%s([^>]*?)\\snonce\\s*=\\s*(['\"])[^'\"]*\\2");
+    private static final Map<String, Pattern> INJECT_NONCE_PATTERNS =
+            compileNoncePatterns("(?i)<%s([\\s>])");
     private final Encoder encoder;
 
     public AddContentSecurityPolicy() {
@@ -95,7 +106,7 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
 
         if (hasEnforcedPolicy || hasReportOnlyPolicy) {
             final String reportEndpoint = resolveReportEndpoint(renderContext, resource, site);
-            response.setHeader(REPORTING_ENDPOINTS_HEADER, CSP_ENDPOINT_NAME + "=\"" + reportEndpoint + "\"");
+            response.setHeader(REPORTING_ENDPOINTS_HEADER, sanitizeHeaderValue(CSP_ENDPOINT_NAME + "=\"" + reportEndpoint + "\""));
 
             if (hasEnforcedPolicy) {
                 // Backward-compatible toggle: when cspReportOnly is set, the main policy is delivered as
@@ -133,15 +144,49 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
     }
 
     private String resolveReportEndpoint(RenderContext renderContext, Resource resource, JCRSiteNode site) throws RepositoryException {
-        String reportEndpoint = renderContext.getRequest().getContextPath() + resource.getNodePath() + DEFAULT_REPORT_ACTION_SUFFIX;
         if (site.hasProperty(ReportOnlyAction.PROP_CSP_REPORT_URL) && !site.getProperty(ReportOnlyAction.PROP_CSP_REPORT_URL).getString().isEmpty()) {
-            try {
-                reportEndpoint = new URL(site.getProperty(ReportOnlyAction.PROP_CSP_REPORT_URL).getString()).toString();
-            } catch (MalformedURLException e) {
-                LOGGER.warn("The provided CSP report URL is not valid, using the default one.", e);
+            final String customUrl = site.getProperty(ReportOnlyAction.PROP_CSP_REPORT_URL).getString().trim();
+            if (isValidReportUrl(customUrl)) {
+                return customUrl;
+            }
+            LOGGER.warn("The provided CSP report URL is not valid, using the default one.");
+        }
+        return renderContext.getRequest().getContextPath() + resource.getNodePath() + DEFAULT_REPORT_ACTION_SUFFIX;
+    }
+
+    /**
+     * Accepts only absolute http(s) URLs free of control characters. {@code new URL(...)} alone is not a
+     * security validator: it accepts {@code file:}, {@code ftp:} or {@code jar:} schemes and tolerates raw
+     * control characters, which would end up inside response headers (header injection on unpatched
+     * containers, request failure on patched ones).
+     */
+    static boolean isValidReportUrl(String url) {
+        if (url == null || url.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < url.length(); i++) {
+            final char c = url.charAt(i);
+            // Control characters enable header injection; a raw space is illegal in a URL (RFC 3986)
+            // and would split the space-delimited report-uri directive value.
+            if (c <= 0x20 || c == 0x7F) {
+                return false;
             }
         }
-        return reportEndpoint;
+        try {
+            final String protocol = new URL(url).getProtocol();
+            return "http".equals(protocol) || "https".equals(protocol);
+        } catch (MalformedURLException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Makes a value safe to use as an HTTP header: CR/LF and other control characters are collapsed to a
+     * single space. This is defence-in-depth against response splitting via JCR-stored values, and it also
+     * turns the multi-line policies admins paste into the textarea into a valid single-line header.
+     */
+    static String sanitizeHeaderValue(String value) {
+        return value.replaceAll("[\\x00-\\x1F\\x7F]+", " ").trim();
     }
 
     /**
@@ -150,7 +195,10 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
      * declared them, so the module never produces a duplicate (ignored) directive.
      */
     static String buildPolicyValue(String policyDirectives, String nonce, String reportEndpoint) {
-        final String withNonce = policyDirectives.replace(CSP_WEB_NONCE_PLACEHOLDER, CSP_WEB_NONCE_PLACEHOLDER + nonce);
+        // Sanitizing here both blocks response splitting through the JCR-stored policy and lets
+        // admins keep the multi-line layout the textarea (and our README examples) encourage.
+        final String withNonce = sanitizeHeaderValue(policyDirectives)
+                .replace(CSP_WEB_NONCE_PLACEHOLDER, CSP_WEB_NONCE_PLACEHOLDER + nonce);
         final StringBuilder policy = new StringBuilder(stripTrailingSeparators(withNonce));
         if (!containsDirective(withNonce, REPORT_URI_DIRECTIVE)) {
             policy.append(CSP_SEPARATOR).append(' ').append(REPORT_URI_DIRECTIVE).append(' ').append(reportEndpoint);
@@ -183,14 +231,22 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
 
     /**
      * Strips any pre-existing nonce attribute from the given tag and injects the per-response nonce, so the
-     * attribute in the body always matches the one in the header. {@code tagName} is a controlled literal,
-     * never user input.
+     * attribute in the body always matches the one in the header. {@code tagName} must be one of
+     * {@link #NONCEABLE_TAGS}; the nonce is base64url, so it is safe inside a regex replacement.
      */
     static String applyNonce(String html, String tagName, String nonce) {
-        final String stripped = html.replaceAll(
-                "(?i)<" + tagName + "([^>]*?)\\snonce\\s*=\\s*(['\"]).*?\\2", "<" + tagName + "$1");
-        return stripped.replaceAll(
-                "(?i)<" + tagName + "([\\s>])", "<" + tagName + " nonce=\"" + nonce + "\"$1");
+        final String stripped = STRIP_NONCE_PATTERNS.get(tagName).matcher(html)
+                .replaceAll("<" + tagName + "$1");
+        return INJECT_NONCE_PATTERNS.get(tagName).matcher(stripped)
+                .replaceAll("<" + tagName + " nonce=\"" + nonce + "\"$1");
+    }
+
+    private static Map<String, Pattern> compileNoncePatterns(String template) {
+        final Map<String, Pattern> patterns = new HashMap<>();
+        for (String tag : NONCEABLE_TAGS) {
+            patterns.put(tag, Pattern.compile(String.format(template, tag)));
+        }
+        return Collections.unmodifiableMap(patterns);
     }
 
     private String getNonceValue() {

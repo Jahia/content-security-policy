@@ -156,5 +156,91 @@ class AddContentSecurityPolicyTest {
 
             assertThat(result).contains("nonce=\"N\"");
         }
+
+        @Test
+        @DisplayName("handles a long attribute list without a nonce efficiently (no regex backtracking blow-up)")
+        void handlesLongAttributesWithoutNonce() {
+            // Arrange — a tag with a very long attribute string and no nonce: the old .*? pattern
+            // degraded quadratically on this shape
+            String longAttributes = "data-config=\"" + "x".repeat(10_000) + "\"";
+            String html = "<script " + longAttributes + " src='a.js'></script>";
+
+            // Act
+            long start = System.nanoTime();
+            String result = AddContentSecurityPolicy.applyNonce(html, "script", "N");
+            long elapsedMillis = (System.nanoTime() - start) / 1_000_000;
+
+            // Assert — correct output, and well under any pathological runtime
+            assertThat(result).contains("<script nonce=\"N\" " + longAttributes);
+            assertThat(elapsedMillis).isLessThan(1000);
+        }
+    }
+
+    @Nested
+    @DisplayName("isValidReportUrl")
+    class IsValidReportUrl {
+
+        @Test
+        @DisplayName("accepts absolute http and https URLs")
+        void acceptsHttpAndHttps() {
+            assertThat(AddContentSecurityPolicy.isValidReportUrl("https://reports.example.com/csp")).isTrue();
+            assertThat(AddContentSecurityPolicy.isValidReportUrl("http://reports.example.com/csp")).isTrue();
+        }
+
+        @Test
+        @DisplayName("rejects non-http(s) schemes that java.net.URL would accept")
+        void rejectsDangerousSchemes() {
+            assertThat(AddContentSecurityPolicy.isValidReportUrl("file:///etc/passwd")).isFalse();
+            assertThat(AddContentSecurityPolicy.isValidReportUrl("ftp://internal.host/r")).isFalse();
+        }
+
+        @Test
+        @DisplayName("rejects URLs containing control characters (header injection)")
+        void rejectsControlCharacters() {
+            assertThat(AddContentSecurityPolicy.isValidReportUrl("https://ok.example.com/\r\nX-Injected: evil")).isFalse();
+            assertThat(AddContentSecurityPolicy.isValidReportUrl("https://ok.example.com/ ")).isFalse();
+        }
+
+        @Test
+        @DisplayName("rejects malformed, empty and null values")
+        void rejectsMalformedValues() {
+            assertThat(AddContentSecurityPolicy.isValidReportUrl("not a url")).isFalse();
+            assertThat(AddContentSecurityPolicy.isValidReportUrl("")).isFalse();
+            assertThat(AddContentSecurityPolicy.isValidReportUrl(null)).isFalse();
+        }
+    }
+
+    @Nested
+    @DisplayName("sanitizeHeaderValue")
+    class SanitizeHeaderValue {
+
+        @Test
+        @DisplayName("collapses CR/LF to a space (response splitting defence)")
+        void collapsesCrlf() {
+            assertThat(AddContentSecurityPolicy.sanitizeHeaderValue("default-src 'self';\r\nscript-src 'self'"))
+                    .isEqualTo("default-src 'self'; script-src 'self'");
+        }
+
+        @Test
+        @DisplayName("leaves a clean single-line value untouched")
+        void leavesCleanValueUntouched() {
+            assertThat(AddContentSecurityPolicy.sanitizeHeaderValue("default-src 'self'"))
+                    .isEqualTo("default-src 'self'");
+        }
+
+        @Test
+        @DisplayName("buildPolicyValue turns a multi-line textarea policy into a valid single-line header")
+        void buildPolicyValueAcceptsMultilinePolicy() {
+            // Arrange — the multi-line layout our README examples encourage
+            String multiline = "default-src 'self';\nscript-src 'nonce-';\nobject-src 'none'";
+
+            // Act
+            String result = AddContentSecurityPolicy.buildPolicyValue(multiline, "ABC", "/r.do");
+
+            // Assert
+            assertThat(result).doesNotContain("\n").doesNotContain("\r");
+            assertThat(result).startsWith("default-src 'self'; script-src 'nonce-ABC'; object-src 'none'");
+            assertThat(result).contains("report-uri /r.do");
+        }
     }
 }

@@ -37,6 +37,9 @@ final class CspViolation {
     static final String UNKNOWN_EFFECTIVE_DIRECTIVE = "unknown effective directive";
     static final String UNKNOWN_URL = "unknown url";
 
+    /** Maximum stored length per field; real CSP report fields are far shorter. */
+    private static final int MAX_FIELD_LENGTH = 1024;
+
     /**
      * URI scheme prefixes browsers use for content injected by installed extensions. Violations whose
      * blocked URL or source file uses one of these schemes are caused by an extension, not by the site,
@@ -60,13 +63,15 @@ final class CspViolation {
 
     CspViolation(String documentUrl, String effectiveDirective, String blockedUrl,
                  String sourceFile, String lineNumber, String columnNumber, String sample) {
-        this.documentUrl = documentUrl;
-        this.effectiveDirective = effectiveDirective;
-        this.blockedUrl = blockedUrl;
-        this.sourceFile = sourceFile;
-        this.lineNumber = lineNumber;
-        this.columnNumber = columnNumber;
-        this.sample = sample;
+        // All fields are attacker-controlled (anonymous POST): sanitize once here so every
+        // current and future log call is safe from CRLF log forging and field flooding.
+        this.documentUrl = sanitizeForLog(documentUrl);
+        this.effectiveDirective = sanitizeForLog(effectiveDirective);
+        this.blockedUrl = sanitizeForLog(blockedUrl);
+        this.sourceFile = sanitizeForLog(sourceFile);
+        this.lineNumber = sanitizeForLog(lineNumber);
+        this.columnNumber = sanitizeForLog(columnNumber);
+        this.sample = sanitizeForLog(sample);
     }
 
     /** A violation whose every field is unknown — used when a report shape cannot be recognised. */
@@ -148,7 +153,24 @@ final class CspViolation {
         if (isPresent(sample)) {
             message.append(" (sample: ").append(sample).append(')');
         }
-        return message.append(" with user-agent \"").append(userAgent).append('"').toString();
+        // The user agent is a raw request header: sanitize it at the last point before logging.
+        return message.append(" with user-agent \"").append(sanitizeForLog(userAgent)).append('"').toString();
+    }
+
+    /**
+     * Makes an attacker-controlled value safe to write to the log: CR/LF and other control characters
+     * (which would allow forging extra log lines) are collapsed to a single space, and the value is
+     * truncated to {@value #MAX_FIELD_LENGTH} characters so a single report cannot flood the log.
+     */
+    static String sanitizeForLog(String value) {
+        if (value == null) {
+            return null;
+        }
+        String sanitized = value.replaceAll("[\\x00-\\x1F\\x7F]+", " ");
+        if (sanitized.length() > MAX_FIELD_LENGTH) {
+            sanitized = sanitized.substring(0, MAX_FIELD_LENGTH) + "...";
+        }
+        return sanitized;
     }
 
     private static boolean isPresent(String value) {
