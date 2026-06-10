@@ -24,6 +24,7 @@
 package org.jahia.modules.csp.actions;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
@@ -48,21 +49,24 @@ public final class ReportOnlyAction extends Action {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ReportOnlyAction.class);
     private static final String ACTION_NAME = "contentSecurityPolicyReportOnly";
-    private static final String KEY_BLOCKED_URI = "blocked-uri";
-    private static final String KEY_BLOCKED_URL = "blockedURL";
+    private static final String CONTENT_TYPE_CSP_REPORT = "application/csp-report";
+    private static final String CONTENT_TYPE_REPORTS_JSON = "application/reports+json";
     private static final String KEY_BODY = "body";
     private static final String KEY_CSP_REPORT = "csp-report";
-    private static final String KEY_DOCUMENT_URI = "document-uri";
-    private static final String KEY_DOCUMENT_URL = "documentURL";
-    private static final String KEY_EFF_DIR_CHROME = "effectiveDirective";
-    private static final String KEY_EFF_DIR_FIREFOX = "effective-directive";
     private static final String LOG_MSG_BEGIN = "Content Security Policy:";
-    private static final String MSG_UNKNOWN_DOCUMENT_URL = "unknown document url";
-    private static final String MSG_UNKNOWN_EFFECTIVE_DIRECTIVE = "unknown effective directive";
-    private static final String MSG_UNKNOWN_URL = "unknown url";
+    private static final String MSG_UNKNOWN_USER_AGENT = "unknown user agent";
     private static final String HEADER_USER_AGENT = "User-Agent";
     public static final String PROP_CSP_REPORT_ONLY = "cspReportOnly";
     public static final String PROP_CSP_REPORT_URL = "cspReportUrl";
+
+    /** Field names for the legacy {@code application/csp-report} payload (Firefox, kebab-case). */
+    private static final ReportKeys FIREFOX_KEYS = new ReportKeys(
+            "document-uri", "effective-directive", "violated-directive", "blocked-uri",
+            "source-file", "line-number", "column-number", "script-sample");
+    /** Field names for the Reporting API {@code application/reports+json} payload (Chrome, camelCase). */
+    private static final ReportKeys CHROME_KEYS = new ReportKeys(
+            "documentURL", "effectiveDirective", null, "blockedURL",
+            "sourceFile", "lineNumber", "columnNumber", "sample");
 
     @Activate
     public void activate() {
@@ -73,20 +77,22 @@ public final class ReportOnlyAction extends Action {
     @Override
     public ActionResult doExecute(HttpServletRequest req, RenderContext renderContext, Resource resource, JCRSessionWrapper session, Map<String, List<String>> parameters, URLResolver urlResolver) throws Exception {
         LOGGER.debug(String.format("%s request content-type: %s", LOG_MSG_BEGIN, req.getContentType()));
-        if ("application/csp-report".equals(req.getContentType()) || "application/reports+json".equals(req.getContentType())) {
+        if (CONTENT_TYPE_CSP_REPORT.equals(req.getContentType()) || CONTENT_TYPE_REPORTS_JSON.equals(req.getContentType())) {
             final JCRSiteNode site = renderContext.getSite();
             if ((site.hasProperty(PROP_CSP_REPORT_ONLY) && site.getProperty(PROP_CSP_REPORT_ONLY).getBoolean())
                     || (site.hasProperty(PROP_CSP_REPORT_URL) && site.getPropertyAsString(PROP_CSP_REPORT_URL).endsWith(ACTION_NAME + ".do"))) {
                 final String report = IOUtils.toString(req.getInputStream(), StandardCharsets.UTF_8);
                 if (report != null && !report.isBlank()) {
-                    final String userAgent = req.getHeader(HEADER_USER_AGENT) == null ? "unknown user agent" : req.getHeader(HEADER_USER_AGENT);
+                    final String userAgent = req.getHeader(HEADER_USER_AGENT) == null ? MSG_UNKNOWN_USER_AGENT : req.getHeader(HEADER_USER_AGENT);
                     LOGGER.debug(String.format("%s request content: %s", LOG_MSG_BEGIN, report));
                     try {
-                        final String[] violation = parseCspReport(report);
-                        if (violation == null) {
+                        final List<CspViolation> violations = parseCspReport(report);
+                        if (violations == null || violations.isEmpty()) {
                             return ActionResult.BAD_REQUEST;
                         }
-                        LOGGER.warn(String.format("%s %s blocked for %s on %s with user-agent \"%s\"", LOG_MSG_BEGIN, violation[2], violation[1], violation[0], userAgent));
+                        for (CspViolation violation : violations) {
+                            LOGGER.warn(String.format("%s %s", LOG_MSG_BEGIN, violation.toLogMessage(userAgent)));
+                        }
                         return ActionResult.OK;
                     } catch (JSONException ex) {
                         //ignore exception only if we want to debug anything
@@ -99,44 +105,97 @@ public final class ReportOnlyAction extends Action {
     }
 
     /**
-     * Parses a raw CSP violation report into a {@code {document-url, effective-directive, blocked-url}} triple.
+     * Parses a raw CSP violation report into one {@link CspViolation} per reported violation.
      * <p>
-     * Supports both the legacy {@code application/csp-report} shape (Firefox, top-level {@code csp-report} key)
-     * and the Reporting API {@code application/reports+json} shape (Chrome, {@code body} key), whether the payload
-     * is delivered as a single JSON object ({@code {...}}) or wrapped in an array ({@code [{...}]}).
+     * Supports both the legacy {@code application/csp-report} shape (Firefox, top-level {@code csp-report}
+     * key) and the Reporting API {@code application/reports+json} shape (Chrome, {@code body} key). A single
+     * object ({@code {...}}) yields one violation; an array ({@code [{...},{...}]}) — which the Reporting API
+     * uses to batch several violations into one POST — yields one violation per element.
      *
      * @param report the raw request body
-     * @return the violation triple; the "unknown" defaults when neither report shape is recognised; or
-     *         {@code null} when the payload is neither a JSON object nor a JSON array (caller should answer
-     *         {@code BAD_REQUEST})
+     * @return one entry per reported violation (an unrecognised shape maps to {@link CspViolation#unknown()});
+     *         an empty list for an empty JSON array; or {@code null} when the payload is neither a JSON object
+     *         nor a JSON array (the caller should answer {@code BAD_REQUEST})
      * @throws JSONException when the payload starts like JSON but is malformed
      */
-    static String[] parseCspReport(String report) throws JSONException {
-        final JSONObject cspData;
+    static List<CspViolation> parseCspReport(String report) throws JSONException {
+        final List<CspViolation> violations = new ArrayList<>();
         if (report.startsWith("{")) {
-            cspData = new JSONObject(report);
+            violations.add(parseSingleReport(new JSONObject(report)));
         } else if (report.startsWith("[")) {
-            cspData = new JSONArray(report).getJSONObject(0);
+            final JSONArray reports = new JSONArray(report);
+            for (int i = 0; i < reports.length(); i++) {
+                violations.add(parseSingleReport(reports.getJSONObject(i)));
+            }
         } else {
             return null;
         }
-        if (cspData.has(KEY_CSP_REPORT)) {
-            return parseReport(cspData, KEY_CSP_REPORT, KEY_DOCUMENT_URI, KEY_EFF_DIR_FIREFOX, KEY_BLOCKED_URI);
-        } else if (cspData.has(KEY_BODY)) {
-            return parseReport(cspData, KEY_BODY, KEY_DOCUMENT_URL, KEY_EFF_DIR_CHROME, KEY_BLOCKED_URL);
-        }
-        return new String[]{MSG_UNKNOWN_DOCUMENT_URL, MSG_UNKNOWN_EFFECTIVE_DIRECTIVE, MSG_UNKNOWN_URL};
+        return violations;
     }
 
-    private static String[] parseReport(JSONObject jsonReport, String bodyKey, String documentUrlKey, String effectiveDirectiveKey, String blockedUrlKey) throws JSONException {
-        if (jsonReport.has(bodyKey)) {
-            final JSONObject jsonBody = jsonReport.getJSONObject(bodyKey);
-            return new String[]{
-                jsonBody.optString(documentUrlKey, MSG_UNKNOWN_DOCUMENT_URL),
-                jsonBody.optString(effectiveDirectiveKey, MSG_UNKNOWN_EFFECTIVE_DIRECTIVE),
-                jsonBody.optString(blockedUrlKey, MSG_UNKNOWN_URL)
-            };
+    private static CspViolation parseSingleReport(JSONObject report) throws JSONException {
+        if (report.has(KEY_CSP_REPORT)) {
+            return parseBody(report.getJSONObject(KEY_CSP_REPORT), FIREFOX_KEYS);
+        } else if (report.has(KEY_BODY)) {
+            return parseBody(report.getJSONObject(KEY_BODY), CHROME_KEYS);
         }
-        return new String[]{MSG_UNKNOWN_DOCUMENT_URL, MSG_UNKNOWN_EFFECTIVE_DIRECTIVE, MSG_UNKNOWN_URL};
+        return CspViolation.unknown();
+    }
+
+    private static CspViolation parseBody(JSONObject body, ReportKeys keys) {
+        return new CspViolation(
+                body.optString(keys.documentUrl, CspViolation.UNKNOWN_DOCUMENT_URL),
+                resolveDirective(body, keys),
+                body.optString(keys.blockedUrl, CspViolation.UNKNOWN_URL),
+                nullIfBlank(body.optString(keys.sourceFile, null)),
+                nullIfBlank(body.optString(keys.lineNumber, null)),
+                nullIfBlank(body.optString(keys.columnNumber, null)),
+                nullIfBlank(body.optString(keys.sample, null)));
+    }
+
+    /**
+     * Resolves the directive name, preferring {@code effective-directive} (CSP3) and falling back to
+     * {@code violated-directive} (CSP2 / older Firefox) so reports from either era are not lost.
+     */
+    private static String resolveDirective(JSONObject body, ReportKeys keys) {
+        final String effective = body.optString(keys.effectiveDirective, null);
+        if (effective != null && !effective.isEmpty()) {
+            return effective;
+        }
+        if (keys.violatedDirective != null) {
+            final String violated = body.optString(keys.violatedDirective, null);
+            if (violated != null && !violated.isEmpty()) {
+                return violated;
+            }
+        }
+        return CspViolation.UNKNOWN_EFFECTIVE_DIRECTIVE;
+    }
+
+    private static String nullIfBlank(String value) {
+        return (value == null || value.isEmpty()) ? null : value;
+    }
+
+    /** Maps the generic violation fields to the concrete JSON key names used by a browser dialect. */
+    private static final class ReportKeys {
+        private final String documentUrl;
+        private final String effectiveDirective;
+        private final String violatedDirective;
+        private final String blockedUrl;
+        private final String sourceFile;
+        private final String lineNumber;
+        private final String columnNumber;
+        private final String sample;
+
+        private ReportKeys(String documentUrl, String effectiveDirective, String violatedDirective, String blockedUrl,
+                           String sourceFile, String lineNumber, String columnNumber, String sample) {
+            this.documentUrl = documentUrl;
+            this.effectiveDirective = effectiveDirective;
+            this.violatedDirective = violatedDirective;
+            this.blockedUrl = blockedUrl;
+            this.sourceFile = sourceFile;
+            this.lineNumber = lineNumber;
+            this.columnNumber = columnNumber;
+            this.sample = sample;
+        }
     }
 }

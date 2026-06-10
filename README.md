@@ -65,3 +65,24 @@ frame-src 'self' https://*.googletagmanager.com https://*.google-analytics.com h
 connect-src 'self' https://*.google-analytics.com https://*.googletagmanager.com https://*.doubleclick.net https://*.googlesyndication.com;
 
 ```
+
+The `nonce-` placeholder is replaced with a fresh per-request nonce and injected into every
+`<script>`, `<style>` and `<link>` tag, so `script-src 'nonce-'` and `style-src 'nonce-'` both work.
+
+### Enforced and report-only policies together
+
+Two policy fields are available under Options:
+
+- **Enforced Content-Security-Policy** (`policy`) — the policy the browser enforces.
+- **Report-only Content-Security-Policy** (`policyReportOnly`) — an optional policy delivered in a
+  separate `Content-Security-Policy-Report-Only` header *alongside* the enforced one.
+
+This lets you trial a stricter candidate policy in report-only mode (watching the violation reports)
+while a known-good policy stays enforced — the recommended way to tighten a CSP without breaking the
+site. Both fields can also be overridden at the page level.
+
+The legacy **Only report CSP violations** toggle (`cspReportOnly`) still works: when set, the enforced
+policy is delivered in report-only mode instead.
+
+The module appends `report-uri` and `report-to` automatically, but only when your policy does not
+already declare them — so a hand-written reporting directive is never duplicated.

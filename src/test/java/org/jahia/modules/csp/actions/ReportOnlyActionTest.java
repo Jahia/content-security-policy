@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2002 - 2022 Jahia Solutions Group. All rights reserved.
+ * Copyright (c) 2002 - 2025 Jahia Solutions Group. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,26 +26,21 @@ package org.jahia.modules.csp.actions;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.List;
 import org.json.JSONException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for {@link ReportOnlyAction#parseCspReport(String)}, the pure CSP-violation-report parser.
- * <p>
- * The triple returned by the parser is ordered {@code [document-url, effective-directive, blocked-url]} —
- * matching the order in which {@code doExecute} formats its {@code LOGGER.warn} message.
+ * Unit tests for {@link ReportOnlyAction#parseCspReport(String)} — the pure CSP-violation-report parser —
+ * and for the {@link CspViolation} log formatting it produces.
  */
 @DisplayName("ReportOnlyAction.parseCspReport")
 class ReportOnlyActionTest {
 
-    private static final int DOCUMENT_URL = 0;
-    private static final int EFFECTIVE_DIRECTIVE = 1;
-    private static final int BLOCKED_URL = 2;
-
     @Test
     @DisplayName("parses the legacy Firefox application/csp-report object")
-    void parseCspReport_firefoxObject_returnsViolationTriple() {
+    void parseCspReport_firefoxObject_returnsSingleViolation() {
         // Arrange — Firefox kebab-case keys nested under "csp-report"
         String report = "{\"csp-report\":{"
                 + "\"document-uri\":\"https://example.com/page\","
@@ -53,18 +48,19 @@ class ReportOnlyActionTest {
                 + "\"blocked-uri\":\"https://evil.com/x.js\"}}";
 
         // Act
-        String[] violation = ReportOnlyAction.parseCspReport(report);
+        List<CspViolation> violations = ReportOnlyAction.parseCspReport(report);
 
         // Assert
-        assertThat(violation).isNotNull();
-        assertThat(violation[DOCUMENT_URL]).isEqualTo("https://example.com/page");
-        assertThat(violation[EFFECTIVE_DIRECTIVE]).isEqualTo("script-src");
-        assertThat(violation[BLOCKED_URL]).isEqualTo("https://evil.com/x.js");
+        assertThat(violations).hasSize(1);
+        CspViolation violation = violations.get(0);
+        assertThat(violation.getDocumentUrl()).isEqualTo("https://example.com/page");
+        assertThat(violation.getEffectiveDirective()).isEqualTo("script-src");
+        assertThat(violation.getBlockedUrl()).isEqualTo("https://evil.com/x.js");
     }
 
     @Test
     @DisplayName("parses the Chrome Reporting API array (application/reports+json)")
-    void parseCspReport_chromeArray_returnsViolationTriple() {
+    void parseCspReport_chromeArray_returnsSingleViolation() {
         // Arrange — Chrome camelCase keys nested under "body", wrapped in an array
         String report = "[{\"type\":\"csp-violation\",\"body\":{"
                 + "\"documentURL\":\"https://example.com/page\","
@@ -72,33 +68,106 @@ class ReportOnlyActionTest {
                 + "\"blockedURL\":\"https://evil.com/x.js\"}}]";
 
         // Act
-        String[] violation = ReportOnlyAction.parseCspReport(report);
+        List<CspViolation> violations = ReportOnlyAction.parseCspReport(report);
 
         // Assert
-        assertThat(violation).isNotNull();
-        assertThat(violation[DOCUMENT_URL]).isEqualTo("https://example.com/page");
-        assertThat(violation[EFFECTIVE_DIRECTIVE]).isEqualTo("script-src-elem");
-        assertThat(violation[BLOCKED_URL]).isEqualTo("https://evil.com/x.js");
+        assertThat(violations).hasSize(1);
+        assertThat(violations.get(0).getEffectiveDirective()).isEqualTo("script-src-elem");
+        assertThat(violations.get(0).getBlockedUrl()).isEqualTo("https://evil.com/x.js");
     }
 
     @Test
-    @DisplayName("parses a Chrome Reporting API report delivered as a bare object (regression: previously dropped)")
-    void parseCspReport_chromeBareObject_returnsViolationTriple() {
-        // Arrange — a "body" report NOT wrapped in an array; the old code re-parsed the
-        // payload as a JSONArray here and threw, silently dropping the report.
+    @DisplayName("parses a Chrome report delivered as a bare object (regression: previously dropped)")
+    void parseCspReport_chromeBareObject_returnsSingleViolation() {
+        // Arrange — a "body" report NOT wrapped in an array
         String report = "{\"type\":\"csp-violation\",\"body\":{"
                 + "\"documentURL\":\"https://example.com/page\","
                 + "\"effectiveDirective\":\"img-src\","
                 + "\"blockedURL\":\"https://evil.com/i.png\"}}";
 
         // Act
-        String[] violation = ReportOnlyAction.parseCspReport(report);
+        List<CspViolation> violations = ReportOnlyAction.parseCspReport(report);
 
         // Assert
-        assertThat(violation).isNotNull();
-        assertThat(violation[DOCUMENT_URL]).isEqualTo("https://example.com/page");
-        assertThat(violation[EFFECTIVE_DIRECTIVE]).isEqualTo("img-src");
-        assertThat(violation[BLOCKED_URL]).isEqualTo("https://evil.com/i.png");
+        assertThat(violations).hasSize(1);
+        assertThat(violations.get(0).getEffectiveDirective()).isEqualTo("img-src");
+        assertThat(violations.get(0).getBlockedUrl()).isEqualTo("https://evil.com/i.png");
+    }
+
+    @Test
+    @DisplayName("parses every report in a batched Reporting API array")
+    void parseCspReport_batchedArray_returnsOneViolationPerEntry() {
+        // Arrange — the Reporting API batches multiple violations in one POST
+        String report = "[{\"body\":{\"documentURL\":\"https://example.com/a\","
+                + "\"effectiveDirective\":\"script-src\",\"blockedURL\":\"https://evil.com/a.js\"}},"
+                + "{\"body\":{\"documentURL\":\"https://example.com/b\","
+                + "\"effectiveDirective\":\"style-src\",\"blockedURL\":\"https://evil.com/b.css\"}}]";
+
+        // Act
+        List<CspViolation> violations = ReportOnlyAction.parseCspReport(report);
+
+        // Assert — both entries are captured, not just the first
+        assertThat(violations).hasSize(2);
+        assertThat(violations).extracting(CspViolation::getBlockedUrl)
+                .containsExactly("https://evil.com/a.js", "https://evil.com/b.css");
+    }
+
+    @Test
+    @DisplayName("falls back to violated-directive when effective-directive is absent (CSP2 / older Firefox)")
+    void parseCspReport_violatedDirectiveFallback_usesViolatedDirective() {
+        // Arrange — only the CSP2 "violated-directive" field is present
+        String report = "{\"csp-report\":{"
+                + "\"document-uri\":\"https://example.com/page\","
+                + "\"violated-directive\":\"script-src https://example.com\","
+                + "\"blocked-uri\":\"https://evil.com/x.js\"}}";
+
+        // Act
+        List<CspViolation> violations = ReportOnlyAction.parseCspReport(report);
+
+        // Assert
+        assertThat(violations.get(0).getEffectiveDirective()).isEqualTo("script-src https://example.com");
+    }
+
+    @Test
+    @DisplayName("captures the source location and sample when the browser provides them")
+    void parseCspReport_withSourceLocation_capturesAllFields() {
+        // Arrange
+        String report = "{\"csp-report\":{"
+                + "\"document-uri\":\"https://example.com/page\","
+                + "\"effective-directive\":\"script-src\","
+                + "\"blocked-uri\":\"https://evil.com/x.js\","
+                + "\"source-file\":\"https://example.com/app.js\","
+                + "\"line-number\":42,\"column-number\":7,"
+                + "\"script-sample\":\"eval(danger)\"}}";
+
+        // Act
+        CspViolation violation = ReportOnlyAction.parseCspReport(report).get(0);
+
+        // Assert — source location and sample surface in the log message for triage
+        assertThat(violation.getSourceFile()).isEqualTo("https://example.com/app.js");
+        assertThat(violation.getLineNumber()).isEqualTo("42");
+        assertThat(violation.getColumnNumber()).isEqualTo("7");
+        assertThat(violation.toLogMessage("UA"))
+                .isEqualTo("https://evil.com/x.js blocked for script-src on https://example.com/page"
+                        + " at https://example.com/app.js:42:7 (sample: eval(danger)) with user-agent \"UA\"");
+    }
+
+    @Test
+    @DisplayName("omits the optional source location from the log message when absent")
+    void toLogMessage_withoutSourceLocation_omitsLocationSegment() {
+        // Arrange
+        String report = "{\"csp-report\":{\"document-uri\":\"https://example.com/page\","
+                + "\"effective-directive\":\"script-src\",\"blocked-uri\":\"https://evil.com/x.js\"}}";
+
+        // Act
+        String message = ReportOnlyAction.parseCspReport(report).get(0).toLogMessage("UA");
+
+        // Assert
+        assertThat(message)
+                .isEqualTo("https://evil.com/x.js blocked for script-src on https://example.com/page"
+                        + " with user-agent \"UA\"")
+                .doesNotContain(" at ")
+                .doesNotContain("sample:");
     }
 
     @Test
@@ -108,27 +177,27 @@ class ReportOnlyActionTest {
         String report = "{\"csp-report\":{}}";
 
         // Act
-        String[] violation = ReportOnlyAction.parseCspReport(report);
+        CspViolation violation = ReportOnlyAction.parseCspReport(report).get(0);
 
         // Assert
-        assertThat(violation).isNotNull();
-        assertThat(violation[DOCUMENT_URL]).isEqualTo("unknown document url");
-        assertThat(violation[EFFECTIVE_DIRECTIVE]).isEqualTo("unknown effective directive");
-        assertThat(violation[BLOCKED_URL]).isEqualTo("unknown url");
+        assertThat(violation.getDocumentUrl()).isEqualTo("unknown document url");
+        assertThat(violation.getEffectiveDirective()).isEqualTo("unknown effective directive");
+        assertThat(violation.getBlockedUrl()).isEqualTo("unknown url");
+        assertThat(violation.getSourceFile()).isNull();
     }
 
     @Test
-    @DisplayName("returns all-unknown placeholders when neither csp-report nor body key is present")
-    void parseCspReport_unrecognisedShape_returnsUnknownPlaceholders() {
+    @DisplayName("returns an unknown violation when neither csp-report nor body key is present")
+    void parseCspReport_unrecognisedShape_returnsUnknownViolation() {
         // Arrange — valid JSON object but not a CSP report we understand
         String report = "{\"something\":\"else\"}";
 
         // Act
-        String[] violation = ReportOnlyAction.parseCspReport(report);
+        List<CspViolation> violations = ReportOnlyAction.parseCspReport(report);
 
         // Assert
-        assertThat(violation)
-                .containsExactly("unknown document url", "unknown effective directive", "unknown url");
+        assertThat(violations).hasSize(1);
+        assertThat(violations.get(0).getEffectiveDirective()).isEqualTo("unknown effective directive");
     }
 
     @Test
@@ -137,11 +206,18 @@ class ReportOnlyActionTest {
         // Arrange — plain text the caller must answer with BAD_REQUEST
         String report = "this is not json";
 
-        // Act
-        String[] violation = ReportOnlyAction.parseCspReport(report);
+        // Act / Assert
+        assertThat(ReportOnlyAction.parseCspReport(report)).isNull();
+    }
 
-        // Assert
-        assertThat(violation).isNull();
+    @Test
+    @DisplayName("returns an empty list for an empty JSON array")
+    void parseCspReport_emptyArray_returnsEmptyList() {
+        // Arrange — a batch with no entries
+        String report = "[]";
+
+        // Act / Assert
+        assertThat(ReportOnlyAction.parseCspReport(report)).isEmpty();
     }
 
     @Test
@@ -149,17 +225,6 @@ class ReportOnlyActionTest {
     void parseCspReport_malformedObject_throwsJsonException() {
         // Arrange — starts like an object but is truncated
         String report = "{\"csp-report\":";
-
-        // Act / Assert
-        assertThatThrownBy(() -> ReportOnlyAction.parseCspReport(report))
-                .isInstanceOf(JSONException.class);
-    }
-
-    @Test
-    @DisplayName("throws JSONException for an empty JSON array")
-    void parseCspReport_emptyArray_throwsJsonException() {
-        // Arrange — getJSONObject(0) on an empty array has no first element
-        String report = "[]";
 
         // Act / Assert
         assertThatThrownBy(() -> ReportOnlyAction.parseCspReport(report))
