@@ -11,6 +11,10 @@
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 
     <title>${fn:escapeXml(renderContext.mainResource.node.displayableName)}</title>
+
+    <%-- Deterministic targets for the CSP nonce-injection E2E test (script/style/link). --%>
+    <link id="cspTestStylesheet" rel="stylesheet" href="/modules/content-security-policy-test-module/css/cspTest.css"/>
+    <style id="cspTestStyle">.csp-test { color: red; }</style>
 </head>
 
 <body>
