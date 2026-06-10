@@ -230,4 +230,70 @@ class ReportOnlyActionTest {
         assertThatThrownBy(() -> ReportOnlyAction.parseCspReport(report))
                 .isInstanceOf(JSONException.class);
     }
+
+    @Test
+    @DisplayName("flags a violation as extension-originated when the blocked URL uses a chrome-extension scheme")
+    void isFromBrowserExtension_chromeExtensionBlockedUrl_returnsTrue() {
+        // Arrange — a Chrome extension injecting a blocked script
+        CspViolation violation = new CspViolation("https://example.com/page", "script-src",
+                "chrome-extension://abcdefghijklmnop/inject.js", null, null, null, null);
+
+        // Act / Assert
+        assertThat(violation.isFromBrowserExtension()).isTrue();
+    }
+
+    @Test
+    @DisplayName("flags a violation as extension-originated when the source file uses a moz-extension scheme")
+    void isFromBrowserExtension_mozExtensionSourceFile_returnsTrue() {
+        // Arrange — a Firefox extension content script as the source
+        CspViolation violation = new CspViolation("https://example.com/page", "script-src",
+                "https://example.com/blocked.js", "moz-extension://1234-5678/content.js", "10", "2", null);
+
+        // Act / Assert
+        assertThat(violation.isFromBrowserExtension()).isTrue();
+    }
+
+    @Test
+    @DisplayName("flags Safari extension and webkit-masked-url schemes as extension-originated")
+    void isFromBrowserExtension_safariSchemes_returnTrue() {
+        // Arrange / Act / Assert
+        assertThat(new CspViolation("https://example.com/p", "img-src",
+                "safari-web-extension://AB-CD/x.png", null, null, null, null).isFromBrowserExtension()).isTrue();
+        assertThat(new CspViolation("https://example.com/p", "script-src",
+                "webkit-masked-url://hidden/", null, null, null, null).isFromBrowserExtension()).isTrue();
+    }
+
+    @Test
+    @DisplayName("does not flag a genuine site violation as extension-originated")
+    void isFromBrowserExtension_siteViolation_returnsFalse() {
+        // Arrange — both blocked URL and source file are ordinary web origins
+        CspViolation violation = new CspViolation("https://example.com/page", "script-src",
+                "https://evil.com/x.js", "https://example.com/app.js", "42", "7", null);
+
+        // Act / Assert
+        assertThat(violation.isFromBrowserExtension()).isFalse();
+    }
+
+    @Test
+    @DisplayName("does not flag the all-unknown placeholder violation as extension-originated")
+    void isFromBrowserExtension_unknownViolation_returnsFalse() {
+        // Act / Assert
+        assertThat(CspViolation.unknown().isFromBrowserExtension()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a parsed report with a chrome-extension blocked URI is recognised as extension-originated")
+    void parseCspReport_chromeExtensionReport_isFlaggedAsExtension() {
+        // Arrange — a real-world Firefox report triggered by an installed extension
+        String report = "{\"csp-report\":{"
+                + "\"document-uri\":\"https://example.com/page\","
+                + "\"effective-directive\":\"script-src\","
+                + "\"blocked-uri\":\"chrome-extension://abcdefghijklmnop/contentScript.js\"}}";
+
+        // Act
+        CspViolation violation = ReportOnlyAction.parseCspReport(report).get(0);
+
+        // Assert
+        assertThat(violation.isFromBrowserExtension()).isTrue();
+    }
 }

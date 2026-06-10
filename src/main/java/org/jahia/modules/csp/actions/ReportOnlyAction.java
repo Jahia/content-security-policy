@@ -91,6 +91,11 @@ public final class ReportOnlyAction extends Action {
                             return ActionResult.BAD_REQUEST;
                         }
                         for (CspViolation violation : violations) {
+                            if (violation.isFromBrowserExtension()) {
+                                // Caused by a browser extension, not the site: keep it out of the warning log.
+                                LOGGER.debug(String.format("%s ignoring browser-extension report: %s", LOG_MSG_BEGIN, violation.toLogMessage(userAgent)));
+                                continue;
+                            }
                             LOGGER.warn(String.format("%s %s", LOG_MSG_BEGIN, violation.toLogMessage(userAgent)));
                         }
                         return ActionResult.OK;

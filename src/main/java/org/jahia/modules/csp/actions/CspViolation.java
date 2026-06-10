@@ -37,6 +37,19 @@ final class CspViolation {
     static final String UNKNOWN_EFFECTIVE_DIRECTIVE = "unknown effective directive";
     static final String UNKNOWN_URL = "unknown url";
 
+    /**
+     * URI scheme prefixes browsers use for content injected by installed extensions. Violations whose
+     * blocked URL or source file uses one of these schemes are caused by an extension, not by the site,
+     * and are treated as noise.
+     */
+    private static final String[] BROWSER_EXTENSION_URI_PREFIXES = {
+        "chrome-extension:",      // Chrome, Edge, Brave and other Chromium browsers
+        "moz-extension:",         // Firefox
+        "safari-extension:",      // Safari (legacy extensions)
+        "safari-web-extension:",  // Safari (web extensions)
+        "webkit-masked-url:"      // Safari masks extension resource URLs behind this scheme
+    };
+
     private final String documentUrl;
     private final String effectiveDirective;
     private final String blockedUrl;
@@ -88,6 +101,28 @@ final class CspViolation {
 
     String getSample() {
         return sample;
+    }
+
+    /**
+     * Whether this violation was caused by content injected by a browser extension (identified by the
+     * blocked URL or source file using a {@code *-extension:} / {@code webkit-masked-url:} scheme), rather
+     * than by the site itself. Such reports are noise and should not be logged as site violations.
+     */
+    boolean isFromBrowserExtension() {
+        return usesExtensionScheme(blockedUrl) || usesExtensionScheme(sourceFile);
+    }
+
+    private static boolean usesExtensionScheme(String uri) {
+        if (uri == null) {
+            return false;
+        }
+        final String normalised = uri.trim().toLowerCase();
+        for (String prefix : BROWSER_EXTENSION_URI_PREFIXES) {
+            if (normalised.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
