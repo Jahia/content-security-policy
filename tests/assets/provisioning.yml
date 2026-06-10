@@ -1,0 +1,6 @@
+# Provisioning executed before the tests run.
+# The content-security-policy module and its test template module are installed
+# automatically from the artifacts/ folder by env.provision.sh, so no extra
+# bundles or demo site are required here.
+- karafCommand: "log:log 'START - provisioning (content-security-policy)'"
+- karafCommand: "log:log 'END - provisioning (content-security-policy)'"
