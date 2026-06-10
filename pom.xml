@@ -50,6 +50,23 @@
         <jahia-module-signature>MC0CFQCR6TAMvOyPsfxIqj+AKgIWvsh8yQIUFLxhA6bNxuUQlUntsKNmc5fjBA4=</jahia-module-signature>
     </properties>
 
+    <dependencies>
+        <!-- Test stack: JUnit 5 + AssertJ (per project Java testing rules).
+             org.json is supplied transitively (provided) by the Jahia platform. -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.10.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>3.25.3</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
     <repositories>
         <repository>
             <id>jahia-public</id>

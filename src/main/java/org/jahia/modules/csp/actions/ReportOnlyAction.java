@@ -82,20 +82,9 @@ public final class ReportOnlyAction extends Action {
                     final String userAgent = req.getHeader(HEADER_USER_AGENT) == null ? "unknown user agent" : req.getHeader(HEADER_USER_AGENT);
                     LOGGER.debug(String.format("%s request content: %s", LOG_MSG_BEGIN, report));
                     try {
-                        String[] violation = new String[]{MSG_UNKNOWN_DOCUMENT_URL, MSG_UNKNOWN_EFFECTIVE_DIRECTIVE, MSG_UNKNOWN_URL};
-                        // CSP report from Firefox as of 2026/03/05
-                        final JSONObject cspData;
-                        if (report.startsWith("{")) {
-                            cspData = new JSONObject(report);
-                        } else if (report.startsWith("[")) {
-                            cspData = new JSONArray(report).getJSONObject(0);
-                        } else {
+                        final String[] violation = parseCspReport(report);
+                        if (violation == null) {
                             return ActionResult.BAD_REQUEST;
-                        }
-                        if (cspData.has(KEY_CSP_REPORT)) {
-                            violation = parseReport(cspData, KEY_CSP_REPORT, KEY_DOCUMENT_URI, KEY_EFF_DIR_FIREFOX, KEY_BLOCKED_URI);
-                        } else if (cspData.has(KEY_BODY)) {
-                            violation = parseReport(new JSONArray(report).getJSONObject(0), KEY_BODY, KEY_DOCUMENT_URL, KEY_EFF_DIR_CHROME, KEY_BLOCKED_URL);
                         }
                         LOGGER.warn(String.format("%s %s blocked for %s on %s with user-agent \"%s\"", LOG_MSG_BEGIN, violation[2], violation[1], violation[0], userAgent));
                         return ActionResult.OK;
@@ -109,7 +98,37 @@ public final class ReportOnlyAction extends Action {
         return ActionResult.BAD_REQUEST;
     }
 
-    private String[] parseReport(JSONObject jsonReport, String bodyKey, String documentUrlKey, String effectiveDirectiveKey, String blockedUrlKey) throws JSONException {
+    /**
+     * Parses a raw CSP violation report into a {@code {document-url, effective-directive, blocked-url}} triple.
+     * <p>
+     * Supports both the legacy {@code application/csp-report} shape (Firefox, top-level {@code csp-report} key)
+     * and the Reporting API {@code application/reports+json} shape (Chrome, {@code body} key), whether the payload
+     * is delivered as a single JSON object ({@code {...}}) or wrapped in an array ({@code [{...}]}).
+     *
+     * @param report the raw request body
+     * @return the violation triple; the "unknown" defaults when neither report shape is recognised; or
+     *         {@code null} when the payload is neither a JSON object nor a JSON array (caller should answer
+     *         {@code BAD_REQUEST})
+     * @throws JSONException when the payload starts like JSON but is malformed
+     */
+    static String[] parseCspReport(String report) throws JSONException {
+        final JSONObject cspData;
+        if (report.startsWith("{")) {
+            cspData = new JSONObject(report);
+        } else if (report.startsWith("[")) {
+            cspData = new JSONArray(report).getJSONObject(0);
+        } else {
+            return null;
+        }
+        if (cspData.has(KEY_CSP_REPORT)) {
+            return parseReport(cspData, KEY_CSP_REPORT, KEY_DOCUMENT_URI, KEY_EFF_DIR_FIREFOX, KEY_BLOCKED_URI);
+        } else if (cspData.has(KEY_BODY)) {
+            return parseReport(cspData, KEY_BODY, KEY_DOCUMENT_URL, KEY_EFF_DIR_CHROME, KEY_BLOCKED_URL);
+        }
+        return new String[]{MSG_UNKNOWN_DOCUMENT_URL, MSG_UNKNOWN_EFFECTIVE_DIRECTIVE, MSG_UNKNOWN_URL};
+    }
+
+    private static String[] parseReport(JSONObject jsonReport, String bodyKey, String documentUrlKey, String effectiveDirectiveKey, String blockedUrlKey) throws JSONException {
         if (jsonReport.has(bodyKey)) {
             final JSONObject jsonBody = jsonReport.getJSONObject(bodyKey);
             return new String[]{
