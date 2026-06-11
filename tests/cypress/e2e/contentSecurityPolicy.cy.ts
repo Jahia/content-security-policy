@@ -330,6 +330,26 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
         });
     });
 
+    it('GIVEN a policy configured WHEN a self-declared bot posts a violation report THEN the endpoint still accepts it', () => {
+        // The bot filter only demotes the log level: the report must keep getting HTTP 200
+        // (this also verifies the vendored crawler-user-agents list loads inside the OSGi bundle)
+        enableCSPModule();
+        configureCSPPolicyGlobally('default-src \'self\'', '');
+
+        cy.request({
+            method: 'POST',
+            url: `/sites/${SITE_KEY}/home.contentSecurityPolicyReportOnly.do`,
+            headers: {
+                'Content-Type': 'application/csp-report',
+                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/148.0.0.0 Safari/537.36'
+            },
+            body: '{"csp-report":{"document-uri":"https://example.com/p","effective-directive":"script-src","blocked-uri":"https://evil.com/x.js"}}',
+            failOnStatusCode: false
+        }).then(response => {
+            expect(response.status, 'a bot report is accepted (only its log level changes)').to.equal(200);
+        });
+    });
+
     it('GIVEN no CSP configuration WHEN posting a violation report THEN the endpoint rejects it', () => {
         enableCSPModule();
 

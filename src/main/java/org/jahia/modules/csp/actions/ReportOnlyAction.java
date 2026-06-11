@@ -161,21 +161,28 @@ public final class ReportOnlyAction extends Action {
     }
 
     private static void logViolations(List<CspViolation> violations, String userAgent) {
+        // One regex evaluation per request, not per violation.
+        final boolean fromBot = BotUserAgentDetector.isBot(userAgent);
         for (CspViolation violation : violations) {
-            if (violation.isFromBrowserExtension()) {
+            if (fromBot) {
+                // Self-declared bot or crawler: what it trips is noise, not a user-facing breakage.
+                debugIgnored("bot", violation, userAgent);
+            } else if (violation.isFromBrowserExtension()) {
                 // Caused by a browser extension, not the site: keep it out of the warning log.
-                if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug("{} ignoring browser-extension report: {}", LOG_MSG_BEGIN, violation.toLogMessage(userAgent));
-                }
+                debugIgnored("browser-extension", violation, userAgent);
             } else if (!violation.isActionable()) {
                 // Neither a blocked URL nor a directive: nothing to triage (typically gutted reports
                 // from headless crawlers or probe payloads) — keep it out of the warning log.
-                if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug("{} ignoring unactionable report: {}", LOG_MSG_BEGIN, violation.toLogMessage(userAgent));
-                }
+                debugIgnored("unactionable", violation, userAgent);
             } else if (LOGGER.isWarnEnabled()) {
                 LOGGER.warn("{} {}", LOG_MSG_BEGIN, violation.toLogMessage(userAgent));
             }
+        }
+    }
+
+    private static void debugIgnored(String reason, CspViolation violation, String userAgent) {
+        if (LOGGER.isDebugEnabled()) {
+            LOGGER.debug("{} ignoring {} report: {}", LOG_MSG_BEGIN, reason, violation.toLogMessage(userAgent));
         }
     }
 

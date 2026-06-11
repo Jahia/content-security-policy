@@ -14,7 +14,10 @@ CSP spec compliance, report handling and security hardening:
   source file/line/column and script samples are logged for triage.
 - Violations caused by browser extensions (`chrome-extension:`, `moz-extension:`, `safari-*`,
   `webkit-masked-url:` schemes) are filtered out of the warning log, as are unactionable reports
-  carrying neither a blocked URL nor a directive (typical headless-crawler noise).
+  carrying neither a blocked URL nor a directive (typical headless-crawler noise), and reports sent
+  by self-declared bots and crawlers — identified against the vendored, community-maintained
+  [crawler-user-agents](https://github.com/monperrus/crawler-user-agents) pattern list. Filtered
+  reports remain visible at DEBUG level and are still accepted with HTTP 200.
 - Nonces are injected into `<style>` and `<link>` tags in addition to `<script>`, only on pages
   where a policy is configured; responses for nonce-based policies are sent with
   `Cache-Control: no-store`; `report-uri`/`report-to` are no longer duplicated when already declared.

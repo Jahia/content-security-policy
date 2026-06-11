@@ -223,6 +223,19 @@ class ReportOnlyActionDoExecuteTest {
     }
 
     @Test
+    @DisplayName("accepts a complete violation report sent by a self-declared bot (filtered from the warn log) with OK")
+    void doExecute_botReport_returnsOk() throws Exception {
+        // Arrange — a fully actionable report, but from a crawler UA matched by the vendored bot list
+        when(request.getRemoteAddr()).thenReturn("10.0.0.12");
+        when(request.getHeader(anyString())).thenReturn(
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/148.0.0.0 Safari/537.36");
+        givenSiteReportOnlyToggle();
+
+        // Act / Assert — accepted so the sender does not retry, even though it is not warn-logged
+        assertThat(execute().getResultCode()).isEqualTo(200);
+    }
+
+    @Test
     @DisplayName("accepts a browser-extension violation report (filtered from the warn log) with OK")
     void doExecute_extensionReport_returnsOk() throws Exception {
         // Arrange

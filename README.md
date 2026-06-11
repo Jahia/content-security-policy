@@ -114,11 +114,15 @@ custom report URL points back at the built-in action.
   `getRemoteAddr()`, which behind a reverse proxy is the proxy address — keep an edge/WAF rate
   limit as the primary control.
 - **Logging** — violations are logged at **WARN** on logger
-  `org.jahia.modules.csp.actions.ReportOnlyAction`, prefixed `Content Security Policy:`. Violations
+  `org.jahia.modules.csp.actions.ReportOnlyAction`, prefixed `Content Security Policy:`. Three kinds
+  of noise are demoted to DEBUG (the reports are still accepted and rate-limit counted): violations
   caused by browser extensions (`chrome-extension:`, `moz-extension:`, `safari-*`,
-  `webkit-masked-url:` schemes) are noise and demoted to DEBUG, as are unactionable reports carrying
-  neither a blocked URL nor a directive (typically gutted reports from headless crawlers navigating
-  away mid-load, or probe payloads). Raw report bodies, rejected
+  `webkit-masked-url:` schemes); unactionable reports carrying neither a blocked URL nor a directive;
+  and reports sent by self-declared bots and crawlers, identified against the community-maintained
+  [crawler-user-agents](https://github.com/monperrus/crawler-user-agents) list (MIT) vendored at
+  `META-INF/crawler-user-agents.json` — refresh it by replacing the file with the upstream version
+  (the User-Agent header is client-controlled, so this is a noise filter, not a security control).
+  Raw report bodies, rejected
   oversized bodies and truncated batches are logged at DEBUG. Every logged field is sanitized
   (control characters stripped, 1024-char cap). An invalid custom report URL logs a WARN and falls
   back to the built-in endpoint.
