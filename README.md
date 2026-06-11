@@ -116,7 +116,9 @@ custom report URL points back at the built-in action.
 - **Logging** — violations are logged at **WARN** on logger
   `org.jahia.modules.csp.actions.ReportOnlyAction`, prefixed `Content Security Policy:`. Violations
   caused by browser extensions (`chrome-extension:`, `moz-extension:`, `safari-*`,
-  `webkit-masked-url:` schemes) are noise and demoted to DEBUG. Raw report bodies, rejected
+  `webkit-masked-url:` schemes) are noise and demoted to DEBUG, as are unactionable reports carrying
+  neither a blocked URL nor a directive (typically gutted reports from headless crawlers navigating
+  away mid-load, or probe payloads). Raw report bodies, rejected
   oversized bodies and truncated batches are logged at DEBUG. Every logged field is sanitized
   (control characters stripped, 1024-char cap). An invalid custom report URL logs a WARN and falls
   back to the built-in endpoint.

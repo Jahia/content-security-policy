@@ -298,6 +298,40 @@ class ReportOnlyActionTest {
     }
 
     @Test
+    @DisplayName("flags a report with neither blocked URL nor directive as unactionable (headless-crawler noise)")
+    void isActionable_guttedReport_returnsFalse() {
+        // Arrange — the shape seen in production from HeadlessChrome: valid envelope, document URL
+        // present, but no blocked URI and no directive
+        String report = "{\"csp-report\":{\"document-uri\":\"https://example.com/page\"}}";
+
+        // Act
+        CspViolation violation = ReportOnlyAction.parseCspReport(report).get(0);
+
+        // Assert
+        assertThat(violation.isActionable()).isFalse();
+    }
+
+    @Test
+    @DisplayName("keeps a report actionable when either the blocked URL or the directive is known")
+    void isActionable_partialReports_returnTrue() {
+        // Arrange / Act / Assert — blocked URL known, directive unknown
+        assertThat(ReportOnlyAction.parseCspReport(
+                "{\"csp-report\":{\"document-uri\":\"https://example.com/p\",\"blocked-uri\":\"https://evil.com/x.js\"}}")
+                .get(0).isActionable()).isTrue();
+        // Directive known, blocked URL unknown
+        assertThat(ReportOnlyAction.parseCspReport(
+                "{\"csp-report\":{\"document-uri\":\"https://example.com/p\",\"effective-directive\":\"script-src\"}}")
+                .get(0).isActionable()).isTrue();
+    }
+
+    @Test
+    @DisplayName("flags the all-unknown placeholder violation as unactionable")
+    void isActionable_unknownViolation_returnsFalse() {
+        // Act / Assert
+        assertThat(CspViolation.unknown().isActionable()).isFalse();
+    }
+
+    @Test
     @DisplayName("a parsed report with a chrome-extension blocked URI is recognised as extension-originated")
     void parseCspReport_chromeExtensionReport_isFlaggedAsExtension() {
         // Arrange — a real-world Firefox report triggered by an installed extension

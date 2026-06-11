@@ -167,6 +167,12 @@ public final class ReportOnlyAction extends Action {
                 if (LOGGER.isDebugEnabled()) {
                     LOGGER.debug("{} ignoring browser-extension report: {}", LOG_MSG_BEGIN, violation.toLogMessage(userAgent));
                 }
+            } else if (!violation.isActionable()) {
+                // Neither a blocked URL nor a directive: nothing to triage (typically gutted reports
+                // from headless crawlers or probe payloads) — keep it out of the warning log.
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug("{} ignoring unactionable report: {}", LOG_MSG_BEGIN, violation.toLogMessage(userAgent));
+                }
             } else if (LOGGER.isWarnEnabled()) {
                 LOGGER.warn("{} {}", LOG_MSG_BEGIN, violation.toLogMessage(userAgent));
             }

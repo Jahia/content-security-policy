@@ -30,6 +30,7 @@ import static org.mockito.Mockito.when;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.stream.Stream;
 import javax.servlet.ReadListener;
 import javax.servlet.ServletInputStream;
 import javax.servlet.http.HttpServletRequest;
@@ -42,6 +43,9 @@ import org.jahia.services.render.Resource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Orchestration tests for {@link ReportOnlyAction#doExecute} — the unauthenticated endpoint shell —
@@ -185,41 +189,37 @@ class ReportOnlyActionDoExecuteTest {
         assertThat(execute().getResultCode()).isEqualTo(429);
     }
 
-    @Test
-    @DisplayName("rejects an oversized request body")
-    void doExecute_oversizedBody_returnsBadRequest() throws Exception {
+    static Stream<Arguments> rejectedBodies() {
+        return Stream.of(
+                Arguments.of("an oversized body", new byte[ReportOnlyAction.MAX_REPORT_BODY_BYTES + 1]),
+                Arguments.of("a blank body", "   ".getBytes(StandardCharsets.UTF_8)),
+                // Malformed JSON: no JSONException must escape doExecute
+                Arguments.of("a malformed JSON body", "{\"csp-report\":".getBytes(StandardCharsets.UTF_8)));
+    }
+
+    @ParameterizedTest(name = "rejects {0} with BAD_REQUEST")
+    @MethodSource("rejectedBodies")
+    void doExecute_invalidBody_returnsBadRequest(String description, byte[] body) throws Exception {
         // Arrange
         when(request.getRemoteAddr()).thenReturn("10.0.0.7");
         givenSiteReportOnlyToggle();
-        final byte[] oversized = new byte[ReportOnlyAction.MAX_REPORT_BODY_BYTES + 1];
-        when(request.getInputStream()).thenAnswer(invocation -> servletStream(oversized));
+        when(request.getInputStream()).thenAnswer(invocation -> servletStream(body));
 
         // Act / Assert
         assertThat(execute().getResultCode()).isEqualTo(400);
     }
 
     @Test
-    @DisplayName("rejects a blank request body")
-    void doExecute_blankBody_returnsBadRequest() throws Exception {
-        // Arrange
-        when(request.getRemoteAddr()).thenReturn("10.0.0.8");
+    @DisplayName("accepts a gutted, unactionable report (filtered from the warn log) with OK")
+    void doExecute_unactionableReport_returnsOk() throws Exception {
+        // Arrange — the production HeadlessChrome shape: document URL only, no blocked URI/directive
+        when(request.getRemoteAddr()).thenReturn("10.0.0.11");
         givenSiteReportOnlyToggle();
-        when(request.getInputStream()).thenAnswer(invocation -> servletStream("   "));
+        when(request.getInputStream()).thenAnswer(invocation -> servletStream(
+                "{\"csp-report\":{\"document-uri\":\"https://example.com/p\"}}"));
 
-        // Act / Assert
-        assertThat(execute().getResultCode()).isEqualTo(400);
-    }
-
-    @Test
-    @DisplayName("answers BAD_REQUEST for malformed JSON instead of propagating the exception")
-    void doExecute_malformedJson_returnsBadRequest() throws Exception {
-        // Arrange
-        when(request.getRemoteAddr()).thenReturn("10.0.0.9");
-        givenSiteReportOnlyToggle();
-        when(request.getInputStream()).thenAnswer(invocation -> servletStream("{\"csp-report\":"));
-
-        // Act / Assert — no JSONException must escape doExecute
-        assertThat(execute().getResultCode()).isEqualTo(400);
+        // Act / Assert — accepted so the sender does not retry, even though it is not warn-logged
+        assertThat(execute().getResultCode()).isEqualTo(200);
     }
 
     @Test

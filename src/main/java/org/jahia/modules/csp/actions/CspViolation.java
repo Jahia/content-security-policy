@@ -117,6 +117,16 @@ final class CspViolation {
         return usesExtensionScheme(blockedUrl) || usesExtensionScheme(sourceFile);
     }
 
+    /**
+     * Whether this violation carries enough information to act on. Reports where both the blocked URL and
+     * the directive are unknown (typically gutted reports from headless crawlers navigating away mid-load,
+     * or hand-crafted probe payloads) say nothing about what was blocked or why — there is nothing to
+     * triage, so they should not reach the warning log.
+     */
+    boolean isActionable() {
+        return !(UNKNOWN_URL.equals(blockedUrl) && UNKNOWN_EFFECTIVE_DIRECTIVE.equals(effectiveDirective));
+    }
+
     private static boolean usesExtensionScheme(String uri) {
         if (uri == null) {
             return false;
