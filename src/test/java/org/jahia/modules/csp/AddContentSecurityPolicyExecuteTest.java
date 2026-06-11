@@ -126,8 +126,8 @@ class AddContentSecurityPolicyExecuteTest {
         // Assert
         verify(response).addHeader(eq("Content-Security-Policy"),
                 contains("default-src 'self'; report-uri /sites/test/home.contentSecurityPolicyReportOnly.do"));
-        verify(response).setHeader(eq("Reporting-Endpoints"),
-                eq("csp-endpoint=\"/sites/test/home.contentSecurityPolicyReportOnly.do\""));
+        verify(response).setHeader("Reporting-Endpoints",
+                "csp-endpoint=\"/sites/test/home.contentSecurityPolicyReportOnly.do\"");
         // No nonce placeholder in the policy: response caching must stay allowed
         verify(response, never()).setHeader(eq("Cache-Control"), anyString());
         assertThat(out).contains("<script nonce=\"").contains("<style nonce=\"");
@@ -209,7 +209,7 @@ class AddContentSecurityPolicyExecuteTest {
         execute();
 
         // Assert — the ftp:// URL must never reach a response header
-        verify(response).setHeader(eq("Reporting-Endpoints"),
-                eq("csp-endpoint=\"/sites/test/home.contentSecurityPolicyReportOnly.do\""));
+        verify(response).setHeader("Reporting-Endpoints",
+                "csp-endpoint=\"/sites/test/home.contentSecurityPolicyReportOnly.do\"");
     }
 }
