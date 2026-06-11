@@ -294,6 +294,56 @@ describe('Test response headers of the Content Security Policy (CSP) filter', ()
         });
     });
 
+    it('GIVEN a policy using nonce WHEN loading the same page twice THEN header and body nonces match on every response and caching is forbidden', () => {
+        enableCSPModule();
+        configureCSPPolicyGlobally('script-src \'nonce-\'', '');
+
+        const assertNonceConsistency = (response: Cypress.Response<string>) => {
+            const nonce = extractNonce(response.headers['content-security-policy'] as string);
+            expect(nonce, 'nonce should exist in the header').to.not.be.null;
+            expect(response.headers['cache-control'], 'nonce responses must not be cacheable').to.equal('no-store');
+            expect(response.body, 'body nonce must match the header nonce').to.contain(`nonce="${nonce}"`);
+        };
+
+        cy.request(`/sites/${SITE_KEY}/home.html`)
+            .then(firstResponse => {
+                assertNonceConsistency(firstResponse);
+                return cy.request(`/sites/${SITE_KEY}/home.html`);
+            })
+            .then(secondResponse => {
+                assertNonceConsistency(secondResponse);
+            });
+    });
+
+    it('GIVEN a policy configured WHEN posting a violation report THEN the endpoint accepts it', () => {
+        enableCSPModule();
+        configureCSPPolicyGlobally('default-src \'self\'', '');
+
+        cy.request({
+            method: 'POST',
+            url: `/sites/${SITE_KEY}/home.contentSecurityPolicyReportOnly.do`,
+            headers: {'Content-Type': 'application/csp-report'},
+            body: '{"csp-report":{"document-uri":"https://example.com/p","effective-directive":"script-src","blocked-uri":"https://evil.com/x.js"}}',
+            failOnStatusCode: false
+        }).then(response => {
+            expect(response.status, 'a report for a configured site is accepted').to.equal(200);
+        });
+    });
+
+    it('GIVEN no CSP configuration WHEN posting a violation report THEN the endpoint rejects it', () => {
+        enableCSPModule();
+
+        cy.request({
+            method: 'POST',
+            url: `/sites/${SITE_KEY}/home.contentSecurityPolicyReportOnly.do`,
+            headers: {'Content-Type': 'application/csp-report'},
+            body: '{"csp-report":{"document-uri":"https://example.com/p","effective-directive":"script-src","blocked-uri":"https://evil.com/x.js"}}',
+            failOnStatusCode: false
+        }).then(response => {
+            expect(response.status, 'a report for an unconfigured site is rejected').to.equal(400);
+        });
+    });
+
     it('GIVEN CSP configured to restrict img src WHEN loading a page THEN only the legit resources should be loaded by the browser', () => {
         enableCSPModule();
         const sitePolicy = 'img-src example.com';

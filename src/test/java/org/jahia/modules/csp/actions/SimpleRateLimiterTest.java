@@ -98,4 +98,21 @@ class SimpleRateLimiterTest {
         assertThat(limiter.allow("ip-3", T0 + WINDOW)).isTrue();
         assertThat(limiter.allow("ip-3", T0 + WINDOW + 1)).isFalse();
     }
+
+    @Test
+    @DisplayName("evicts only the oldest live window at the bound — a throttled client is never reset by the flood")
+    void allow_keyBoundReachedWithLiveKeys_evictsOldestOnly() {
+        // Arrange — bound of 3 keys, all live; ip-3 (the newest) gets throttled
+        SimpleRateLimiter limiter = new SimpleRateLimiter(1, WINDOW, 3);
+        assertThat(limiter.allow("ip-1", T0)).isTrue();
+        assertThat(limiter.allow("ip-2", T0 + 10)).isTrue();
+        assertThat(limiter.allow("ip-3", T0 + 20)).isTrue();
+
+        // Act / Assert — at the bound, each call evicts only the OLDEST window (ip-1, then ip-2):
+        // ip-3 keeps its counter across the churn and stays throttled. The previous clear-all
+        // backstop would have reset it to a fresh budget here.
+        assertThat(limiter.allow("ip-3", T0 + 21)).isFalse();
+        assertThat(limiter.allow("ip-4", T0 + 30)).isTrue();
+        assertThat(limiter.allow("ip-3", T0 + 31)).isFalse();
+    }
 }

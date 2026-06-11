@@ -173,6 +173,20 @@ class ReportOnlyActionTest {
     }
 
     @Test
+    @DisplayName("yields the unknown directive for a Chrome report missing effectiveDirective")
+    void parseCspReport_chromeReportWithoutDirective_yieldsUnknownDirective() {
+        // Arrange — Chrome dialect has no violated-directive fallback key
+        String report = "{\"body\":{\"documentURL\":\"https://example.com/p\","
+                + "\"blockedURL\":\"https://evil.com/x.js\"}}";
+
+        // Act
+        CspViolation violation = ReportOnlyAction.parseCspReport(report).get(0);
+
+        // Assert
+        assertThat(violation.getEffectiveDirective()).isEqualTo("unknown effective directive");
+    }
+
+    @Test
     @DisplayName("falls back to 'unknown' placeholders for missing body fields")
     void parseCspReport_missingFields_returnsUnknownPlaceholders() {
         // Arrange — body present but every detail field absent

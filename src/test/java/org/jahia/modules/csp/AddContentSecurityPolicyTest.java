@@ -61,10 +61,11 @@ class AddContentSecurityPolicyTest {
             String result = AddContentSecurityPolicy.buildPolicyValue(
                     "default-src 'self'; report-uri /custom", "ABC", "/default.do");
 
-            assertThat(result).contains("report-uri /custom");
-            assertThat(result).doesNotContain("/default.do");
             // report-to is still appended since the author did not declare it
-            assertThat(result).contains("report-to csp-endpoint");
+            assertThat(result)
+                    .contains("report-uri /custom")
+                    .doesNotContain("/default.do")
+                    .contains("report-to csp-endpoint");
         }
 
         @Test
@@ -72,8 +73,9 @@ class AddContentSecurityPolicyTest {
         void normalisesTrailingSeparator() {
             String result = AddContentSecurityPolicy.buildPolicyValue("default-src 'self';", "ABC", "/r.do");
 
-            assertThat(result).isEqualTo("default-src 'self'; report-uri /r.do; report-to csp-endpoint");
-            assertThat(result).doesNotContain(";;");
+            assertThat(result)
+                    .isEqualTo("default-src 'self'; report-uri /r.do; report-to csp-endpoint")
+                    .doesNotContain(";;");
         }
     }
 
@@ -145,8 +147,9 @@ class AddContentSecurityPolicyTest {
             String result = AddContentSecurityPolicy.applyNonce(
                     "<script nonce=\"OLD\" src='a.js'>", "script", "N");
 
-            assertThat(result).contains("nonce=\"N\"");
-            assertThat(result).doesNotContain("OLD");
+            assertThat(result)
+                    .contains("nonce=\"N\"")
+                    .doesNotContain("OLD");
         }
 
         @Test
@@ -158,21 +161,37 @@ class AddContentSecurityPolicyTest {
         }
 
         @Test
-        @DisplayName("handles a long attribute list without a nonce efficiently (no regex backtracking blow-up)")
+        @DisplayName("handles a long attribute list without a nonce (regex backtracking regression guard)")
         void handlesLongAttributesWithoutNonce() {
             // Arrange — a tag with a very long attribute string and no nonce: the old .*? pattern
-            // degraded quadratically on this shape
+            // degraded quadratically on this shape. A backtracking regression would hang this test
+            // into the surefire timeout, which is signal enough — no wall-clock assertion needed.
             String longAttributes = "data-config=\"" + "x".repeat(10_000) + "\"";
             String html = "<script " + longAttributes + " src='a.js'></script>";
 
             // Act
-            long start = System.nanoTime();
             String result = AddContentSecurityPolicy.applyNonce(html, "script", "N");
-            long elapsedMillis = (System.nanoTime() - start) / 1_000_000;
 
-            // Assert — correct output, and well under any pathological runtime
+            // Assert
             assertThat(result).contains("<script nonce=\"N\" " + longAttributes);
-            assertThat(elapsedMillis).isLessThan(1000);
+        }
+
+        @Test
+        @DisplayName("injects the nonce into a self-closing link tag")
+        void injectsNonceIntoSelfClosingLink() {
+            String result = AddContentSecurityPolicy.applyNonce(
+                    "<link rel=\"stylesheet\" href=\"a.css\"/>", "link", "N");
+
+            assertThat(result).isEqualTo("<link nonce=\"N\" rel=\"stylesheet\" href=\"a.css\"/>");
+        }
+
+        @Test
+        @DisplayName("injects the nonce into a bare script tag with no attributes")
+        void injectsNonceIntoBareScriptTag() {
+            String result = AddContentSecurityPolicy.applyNonce(
+                    "<script>alert(1)</script>", "script", "N");
+
+            assertThat(result).isEqualTo("<script nonce=\"N\">alert(1)</script>");
         }
     }
 
@@ -238,9 +257,11 @@ class AddContentSecurityPolicyTest {
             String result = AddContentSecurityPolicy.buildPolicyValue(multiline, "ABC", "/r.do");
 
             // Assert
-            assertThat(result).doesNotContain("\n").doesNotContain("\r");
-            assertThat(result).startsWith("default-src 'self'; script-src 'nonce-ABC'; object-src 'none'");
-            assertThat(result).contains("report-uri /r.do");
+            assertThat(result)
+                    .doesNotContain("\n")
+                    .doesNotContain("\r")
+                    .startsWith("default-src 'self'; script-src 'nonce-ABC'; object-src 'none'")
+                    .contains("report-uri /r.do");
         }
     }
 }

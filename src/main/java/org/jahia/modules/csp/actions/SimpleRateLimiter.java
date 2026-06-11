@@ -33,9 +33,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * Keys are typically client IP addresses ({@code request.getRemoteAddr()}); behind a reverse proxy this is
  * the proxy address unless the container is configured to resolve {@code X-Forwarded-For}, so the limit
  * should stay generous. The tracked-key set is bounded by {@code maxTrackedKeys}: when the bound is reached,
- * expired windows are evicted first and, as a crude backstop against key-spoofing floods, the whole map is
- * cleared if eviction is not enough. This limiter is per-JVM-node, not cluster-wide — it is a noise/abuse
- * mitigation, not a substitute for an edge/WAF rate limit.
+ * expired windows are evicted first, then the oldest live windows — never a full reset, so a key-spoofing
+ * flood cannot hand every throttled client a fresh budget. This limiter is per-JVM-node, not cluster-wide
+ * (a cluster of N nodes effectively multiplies the limit by N) — it is a noise/abuse mitigation, not a
+ * substitute for an edge/WAF rate limit.
  */
 final class SimpleRateLimiter {
 
@@ -78,8 +79,21 @@ final class SimpleRateLimiter {
                 it.remove();
             }
         }
-        if (windows.size() >= maxTrackedKeys) {
-            windows.clear();
+        // Still full (a flood of live keys): evict the oldest windows one by one instead of clearing the
+        // map — a full reset would gift every throttled client a fresh budget, defeating the limiter.
+        while (windows.size() >= maxTrackedKeys) {
+            String oldestKey = null;
+            long oldestStart = Long.MAX_VALUE;
+            for (Map.Entry<String, Window> entry : windows.entrySet()) {
+                if (entry.getValue().start < oldestStart) {
+                    oldestStart = entry.getValue().start;
+                    oldestKey = entry.getKey();
+                }
+            }
+            if (oldestKey == null) {
+                return;
+            }
+            windows.remove(oldestKey);
         }
     }
 

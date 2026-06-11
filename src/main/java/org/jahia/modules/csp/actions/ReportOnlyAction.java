@@ -30,9 +30,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import javax.jcr.RepositoryException;
 import javax.servlet.http.HttpServletRequest;
 import org.jahia.bin.Action;
 import org.jahia.bin.ActionResult;
+import org.jahia.modules.csp.CspConstants;
+import org.jahia.services.content.JCRNodeWrapper;
 import org.jahia.services.content.JCRSessionWrapper;
 import org.jahia.services.content.decorator.JCRSiteNode;
 import org.jahia.services.render.RenderContext;
@@ -46,11 +49,17 @@ import org.osgi.service.component.annotations.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Unauthenticated, CSRF-whitelisted endpoint ({@code *.contentSecurityPolicyReportOnly.do}) receiving the
+ * CSP violation reports browsers POST when a policy managed by this module is violated. Both the legacy
+ * {@code application/csp-report} format and the Reporting API {@code application/reports+json} format are
+ * accepted. Because the endpoint is anonymous by nature, it is defended by a per-client rate limit, a body
+ * size cap and a batch cap; every logged field is sanitized against log forging.
+ */
 @Component(service = Action.class)
 public final class ReportOnlyAction extends Action {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ReportOnlyAction.class);
-    private static final String ACTION_NAME = "contentSecurityPolicyReportOnly";
     private static final String CONTENT_TYPE_CSP_REPORT = "application/csp-report";
     private static final String CONTENT_TYPE_REPORTS_JSON = "application/reports+json";
     private static final String KEY_BODY = "body";
@@ -58,8 +67,6 @@ public final class ReportOnlyAction extends Action {
     private static final String LOG_MSG_BEGIN = "Content Security Policy:";
     private static final String MSG_UNKNOWN_USER_AGENT = "unknown user agent";
     private static final String HEADER_USER_AGENT = "User-Agent";
-    public static final String PROP_CSP_REPORT_ONLY = "cspReportOnly";
-    public static final String PROP_CSP_REPORT_URL = "cspReportUrl";
 
     /** Hard cap on the request body size; a real CSP report is typically under 2 KB. */
     static final int MAX_REPORT_BODY_BYTES = 64 * 1024;
@@ -73,60 +80,102 @@ public final class ReportOnlyAction extends Action {
     /** Field names for the legacy {@code application/csp-report} payload (Firefox, kebab-case). */
     private static final ReportKeys FIREFOX_KEYS = new ReportKeys(
             "document-uri", "effective-directive", "violated-directive", "blocked-uri",
-            "source-file", "line-number", "column-number", "script-sample");
+            new SourceKeys("source-file", "line-number", "column-number", "script-sample"));
     /** Field names for the Reporting API {@code application/reports+json} payload (Chrome, camelCase). */
     private static final ReportKeys CHROME_KEYS = new ReportKeys(
             "documentURL", "effectiveDirective", null, "blockedURL",
-            "sourceFile", "lineNumber", "columnNumber", "sample");
+            new SourceKeys("sourceFile", "lineNumber", "columnNumber", "sample"));
 
     @Activate
     public void activate() {
-        setName(ACTION_NAME);
+        setName(CspConstants.REPORT_ACTION_NAME);
         setRequireAuthenticatedUser(false);
     }
 
     @Override
     public ActionResult doExecute(HttpServletRequest req, RenderContext renderContext, Resource resource, JCRSessionWrapper session, Map<String, List<String>> parameters, URLResolver urlResolver) throws Exception {
-        LOGGER.debug(String.format("%s request content-type: %s", LOG_MSG_BEGIN, CspViolation.sanitizeForLog(req.getContentType())));
-        if (isCspReportContentType(req.getContentType())) {
-            final JCRSiteNode site = renderContext.getSite();
-            if ((site.hasProperty(PROP_CSP_REPORT_ONLY) && site.getProperty(PROP_CSP_REPORT_ONLY).getBoolean())
-                    || (site.hasProperty(PROP_CSP_REPORT_URL) && site.getPropertyAsString(PROP_CSP_REPORT_URL).endsWith(ACTION_NAME + ".do"))) {
-                // Unauthenticated endpoint: throttle per client before reading the body.
-                if (!RATE_LIMITER.allow(req.getRemoteAddr(), System.currentTimeMillis())) {
-                    return new ActionResult(SC_TOO_MANY_REQUESTS);
+        if (LOGGER.isDebugEnabled()) {
+            LOGGER.debug("{} request content-type: {}", LOG_MSG_BEGIN, CspViolation.sanitizeForLog(req.getContentType()));
+        }
+        if (!isCspReportContentType(req.getContentType()) || !acceptsReports(renderContext.getSite(), resource)) {
+            return ActionResult.BAD_REQUEST;
+        }
+        // Unauthenticated endpoint: throttle per client before reading the body.
+        if (!RATE_LIMITER.allow(req.getRemoteAddr(), System.currentTimeMillis())) {
+            return new ActionResult(SC_TOO_MANY_REQUESTS);
+        }
+        return processReport(req);
+    }
+
+    /**
+     * A site accepts violation reports when the legacy report-only toggle is set, when the custom report URL
+     * routes back to this action, or when any policy (enforced or report-only, at site or page level) is
+     * configured — in which case the render filter auto-appends a {@code report-uri} pointing here, so the
+     * resulting reports must not be rejected.
+     */
+    private static boolean acceptsReports(JCRSiteNode site, Resource resource) throws RepositoryException {
+        if (site.hasProperty(CspConstants.PROP_CSP_REPORT_ONLY) && site.getProperty(CspConstants.PROP_CSP_REPORT_ONLY).getBoolean()) {
+            return true;
+        }
+        if (site.hasProperty(CspConstants.PROP_CSP_REPORT_URL)
+                && site.getPropertyAsString(CspConstants.PROP_CSP_REPORT_URL).endsWith(CspConstants.REPORT_ACTION_SUFFIX)) {
+            return true;
+        }
+        return hasAnyPolicy(site) || hasAnyPolicy(resource.getNode());
+    }
+
+    private static boolean hasAnyPolicy(JCRNodeWrapper node) throws RepositoryException {
+        return hasNonEmptyProperty(node, CspConstants.PROP_POLICY)
+                || hasNonEmptyProperty(node, CspConstants.PROP_POLICY_REPORT_ONLY);
+    }
+
+    private static boolean hasNonEmptyProperty(JCRNodeWrapper node, String property) throws RepositoryException {
+        return node.hasProperty(property) && !node.getProperty(property).getString().isEmpty();
+    }
+
+    private ActionResult processReport(HttpServletRequest req) throws IOException {
+        final String report = readBoundedBody(req.getInputStream(), MAX_REPORT_BODY_BYTES);
+        if (report == null) {
+            // Oversized body: a real CSP report is orders of magnitude below the cap.
+            LOGGER.debug("{} request body exceeds {} bytes, rejected", LOG_MSG_BEGIN, MAX_REPORT_BODY_BYTES);
+            return ActionResult.BAD_REQUEST;
+        }
+        if (report.isBlank()) {
+            return ActionResult.BAD_REQUEST;
+        }
+        if (LOGGER.isDebugEnabled()) {
+            LOGGER.debug("{} request content: {}", LOG_MSG_BEGIN, CspViolation.sanitizeForLog(report));
+        }
+        try {
+            final List<CspViolation> violations = parseCspReport(report);
+            if (violations == null || violations.isEmpty()) {
+                return ActionResult.BAD_REQUEST;
+            }
+            logViolations(violations, userAgent(req));
+            return ActionResult.OK;
+        } catch (JSONException ex) {
+            // Malformed JSON from an anonymous client: log at debug and answer BAD_REQUEST.
+            LOGGER.debug("{} error with json content", LOG_MSG_BEGIN, ex);
+            return ActionResult.BAD_REQUEST;
+        }
+    }
+
+    private static void logViolations(List<CspViolation> violations, String userAgent) {
+        for (CspViolation violation : violations) {
+            if (violation.isFromBrowserExtension()) {
+                // Caused by a browser extension, not the site: keep it out of the warning log.
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug("{} ignoring browser-extension report: {}", LOG_MSG_BEGIN, violation.toLogMessage(userAgent));
                 }
-                final String report = readBoundedBody(req.getInputStream(), MAX_REPORT_BODY_BYTES);
-                if (report == null) {
-                    // Oversized body: a real CSP report is orders of magnitude below the cap.
-                    LOGGER.debug(String.format("%s request body exceeds %d bytes, rejected", LOG_MSG_BEGIN, MAX_REPORT_BODY_BYTES));
-                    return ActionResult.BAD_REQUEST;
-                }
-                if (!report.isBlank()) {
-                    final String userAgent = req.getHeader(HEADER_USER_AGENT) == null ? MSG_UNKNOWN_USER_AGENT : req.getHeader(HEADER_USER_AGENT);
-                    LOGGER.debug(String.format("%s request content: %s", LOG_MSG_BEGIN, CspViolation.sanitizeForLog(report)));
-                    try {
-                        final List<CspViolation> violations = parseCspReport(report);
-                        if (violations == null || violations.isEmpty()) {
-                            return ActionResult.BAD_REQUEST;
-                        }
-                        for (CspViolation violation : violations) {
-                            if (violation.isFromBrowserExtension()) {
-                                // Caused by a browser extension, not the site: keep it out of the warning log.
-                                LOGGER.debug(String.format("%s ignoring browser-extension report: %s", LOG_MSG_BEGIN, violation.toLogMessage(userAgent)));
-                                continue;
-                            }
-                            LOGGER.warn(String.format("%s %s", LOG_MSG_BEGIN, violation.toLogMessage(userAgent)));
-                        }
-                        return ActionResult.OK;
-                    } catch (JSONException ex) {
-                        //ignore exception only if we want to debug anything
-                        LOGGER.debug(String.format("%s error with json content", LOG_MSG_BEGIN), ex);
-                    }
-                }
+            } else if (LOGGER.isWarnEnabled()) {
+                LOGGER.warn("{} {}", LOG_MSG_BEGIN, violation.toLogMessage(userAgent));
             }
         }
-        return ActionResult.BAD_REQUEST;
+    }
+
+    private static String userAgent(HttpServletRequest req) {
+        final String userAgent = req.getHeader(HEADER_USER_AGENT);
+        return userAgent == null ? MSG_UNKNOWN_USER_AGENT : userAgent;
     }
 
     /**
@@ -135,7 +184,8 @@ public final class ReportOnlyAction extends Action {
      * Supports both the legacy {@code application/csp-report} shape (Firefox, top-level {@code csp-report}
      * key) and the Reporting API {@code application/reports+json} shape (Chrome, {@code body} key). A single
      * object ({@code {...}}) yields one violation; an array ({@code [{...},{...}]}) — which the Reporting API
-     * uses to batch several violations into one POST — yields one violation per element.
+     * uses to batch several violations into one POST — yields one violation per element, capped at
+     * {@value #MAX_REPORTS_PER_BATCH} entries.
      *
      * @param report the raw request body
      * @return one entry per reported violation (an unrecognised shape maps to {@link CspViolation#unknown()});
@@ -151,9 +201,10 @@ public final class ReportOnlyAction extends Action {
             final JSONArray reports = new JSONArray(report);
             // Cap the batch: an attacker can pack hundreds of minimal entries into one body,
             // turning each into a WARN line (log flooding) — no real browser batches that many.
-            final int count = Math.min(reports.length(), MAX_REPORTS_PER_BATCH);
-            if (reports.length() > count) {
-                LOGGER.debug(String.format("%s batch of %d reports truncated to %d", LOG_MSG_BEGIN, reports.length(), count));
+            final int total = reports.length();
+            final int count = Math.min(total, MAX_REPORTS_PER_BATCH);
+            if (total > count) {
+                LOGGER.debug("{} batch of {} reports truncated to {}", LOG_MSG_BEGIN, total, count);
             }
             for (int i = 0; i < count; i++) {
                 violations.add(parseSingleReport(reports.getJSONObject(i)));
@@ -209,10 +260,10 @@ public final class ReportOnlyAction extends Action {
                 body.optString(keys.documentUrl, CspViolation.UNKNOWN_DOCUMENT_URL),
                 resolveDirective(body, keys),
                 body.optString(keys.blockedUrl, CspViolation.UNKNOWN_URL),
-                nullIfBlank(body.optString(keys.sourceFile, null)),
-                nullIfBlank(body.optString(keys.lineNumber, null)),
-                nullIfBlank(body.optString(keys.columnNumber, null)),
-                nullIfBlank(body.optString(keys.sample, null)));
+                nullIfBlank(body.optString(keys.sourceKeys.sourceFile, null)),
+                nullIfBlank(body.optString(keys.sourceKeys.lineNumber, null)),
+                nullIfBlank(body.optString(keys.sourceKeys.columnNumber, null)),
+                nullIfBlank(body.optString(keys.sourceKeys.sample, null)));
     }
 
     /**
@@ -243,17 +294,26 @@ public final class ReportOnlyAction extends Action {
         private final String effectiveDirective;
         private final String violatedDirective;
         private final String blockedUrl;
+        private final SourceKeys sourceKeys;
+
+        private ReportKeys(String documentUrl, String effectiveDirective, String violatedDirective, String blockedUrl,
+                           SourceKeys sourceKeys) {
+            this.documentUrl = documentUrl;
+            this.effectiveDirective = effectiveDirective;
+            this.violatedDirective = violatedDirective;
+            this.blockedUrl = blockedUrl;
+            this.sourceKeys = sourceKeys;
+        }
+    }
+
+    /** JSON key names of the optional source-location fields of a violation report. */
+    private static final class SourceKeys {
         private final String sourceFile;
         private final String lineNumber;
         private final String columnNumber;
         private final String sample;
 
-        private ReportKeys(String documentUrl, String effectiveDirective, String violatedDirective, String blockedUrl,
-                           String sourceFile, String lineNumber, String columnNumber, String sample) {
-            this.documentUrl = documentUrl;
-            this.effectiveDirective = effectiveDirective;
-            this.violatedDirective = violatedDirective;
-            this.blockedUrl = blockedUrl;
+        private SourceKeys(String sourceFile, String lineNumber, String columnNumber, String sample) {
             this.sourceFile = sourceFile;
             this.lineNumber = lineNumber;
             this.columnNumber = columnNumber;

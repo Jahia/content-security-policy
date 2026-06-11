@@ -24,7 +24,6 @@
 package org.jahia.modules.csp;
 
 import org.apache.commons.lang.StringUtils;
-import org.jahia.modules.csp.actions.ReportOnlyAction;
 import org.jahia.services.content.JCRNodeWrapper;
 import org.jahia.services.content.decorator.JCRSiteNode;
 import org.jahia.services.render.RenderContext;
@@ -50,21 +49,26 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
+/**
+ * Render filter emitting the Content-Security-Policy headers configured on the site or page (via the
+ * {@code jmix:siteContentSecurityPolicy} / {@code jmix:pageContentSecurityPolicy} mixins) and injecting the
+ * per-request nonce into the rendered HTML. It runs late in the render chain (priority -999) so the full
+ * page markup is available, in live and preview modes only, and rewrites the body on every request — which
+ * keeps header and body nonces consistent even when fragments are served from Jahia's HTML cache.
+ */
 @Component(service = RenderFilter.class)
 public final class AddContentSecurityPolicy extends AbstractFilter {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(AddContentSecurityPolicy.class);
     private static final String CSP_SEPARATOR = ";";
-    private static final String CSP_PROPERTY = "policy";
-    private static final String CSP_PROPERTY_REPORT_ONLY = "policyReportOnly";
     private static final String CSP_HEADER = "Content-Security-Policy";
     private static final String CSP_REPORT_ONLY_HEADER = "Content-Security-Policy-Report-Only";
     private static final String REPORTING_ENDPOINTS_HEADER = "Reporting-Endpoints";
+    private static final String CACHE_CONTROL_HEADER = "Cache-Control";
+    private static final String CACHE_CONTROL_NO_STORE = "no-store";
     private static final String CSP_WEB_NONCE_PLACEHOLDER = "nonce-";
-    private static final String CSP_ENDPOINT_NAME = "csp-endpoint";
     private static final String REPORT_URI_DIRECTIVE = "report-uri";
     private static final String REPORT_TO_DIRECTIVE = "report-to";
-    private static final String DEFAULT_REPORT_ACTION_SUFFIX = ".contentSecurityPolicyReportOnly.do";
     private static final String[] NONCEABLE_TAGS = {"script", "style", "link"};
     // Patterns are compiled once per tag at class load: String.replaceAll would recompile them on
     // every page render. The nonce-value part uses [^'"]* (not .*?) to rule out regex backtracking
@@ -97,43 +101,52 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
         final JCRNodeWrapper page = renderContext.getMainResource().getNode();
 
         // page-level policies take precedence over the site-level ones
-        final String enforcedPolicy = resolvePolicy(page, site, CSP_PROPERTY);
-        final String reportOnlyPolicy = resolvePolicy(page, site, CSP_PROPERTY_REPORT_ONLY);
+        final String enforcedPolicy = resolvePolicy(page, site, CspConstants.PROP_POLICY);
+        final String reportOnlyPolicy = resolvePolicy(page, site, CspConstants.PROP_POLICY_REPORT_ONLY);
         final boolean hasEnforcedPolicy = StringUtils.isNotEmpty(enforcedPolicy);
         final boolean hasReportOnlyPolicy = StringUtils.isNotEmpty(reportOnlyPolicy);
 
+        if (!hasEnforcedPolicy && !hasReportOnlyPolicy) {
+            // No policy configured: no headers, and no point paying the nonce-injection rewrite.
+            return previousOut;
+        }
+
         final String nonce = getNonceValue();
+        final String reportEndpoint = resolveReportEndpoint(renderContext, resource, site);
+        response.setHeader(REPORTING_ENDPOINTS_HEADER,
+                sanitizeHeaderValue(CspConstants.CSP_ENDPOINT_NAME + "=\"" + reportEndpoint + "\""));
 
-        if (hasEnforcedPolicy || hasReportOnlyPolicy) {
-            final String reportEndpoint = resolveReportEndpoint(renderContext, resource, site);
-            response.setHeader(REPORTING_ENDPOINTS_HEADER, sanitizeHeaderValue(CSP_ENDPOINT_NAME + "=\"" + reportEndpoint + "\""));
-
-            if (hasEnforcedPolicy) {
-                // Backward-compatible toggle: when cspReportOnly is set, the main policy is delivered as
-                // report-only (no enforcement), matching the historical single-policy behaviour.
-                final boolean asReportOnly = site.hasProperty(ReportOnlyAction.PROP_CSP_REPORT_ONLY)
-                        && site.getProperty(ReportOnlyAction.PROP_CSP_REPORT_ONLY).getBoolean();
-                response.addHeader(asReportOnly ? CSP_REPORT_ONLY_HEADER : CSP_HEADER,
-                        buildPolicyValue(enforcedPolicy, nonce, reportEndpoint));
-            }
-            if (hasReportOnlyPolicy) {
-                // The dedicated report-only policy is delivered alongside the enforced one, so a stricter
-                // candidate can be trialled in report-only mode (per the CSP spec) without dropping enforcement.
-                response.addHeader(CSP_REPORT_ONLY_HEADER,
-                        buildPolicyValue(reportOnlyPolicy, nonce, reportEndpoint));
-            }
+        final boolean usesNonce = (hasEnforcedPolicy && enforcedPolicy.contains(CSP_WEB_NONCE_PLACEHOLDER))
+                || (hasReportOnlyPolicy && reportOnlyPolicy.contains(CSP_WEB_NONCE_PLACEHOLDER));
+        if (usesNonce) {
+            // A per-request nonce is incompatible with any full-response cache (edge/CDN): a cached header
+            // nonce can never match a freshly generated one. Forbid response caching for nonce-based policies.
+            response.setHeader(CACHE_CONTROL_HEADER, CACHE_CONTROL_NO_STORE);
         }
 
-        if (site.getInstalledModules().contains("content-security-policy")) {
-            String out = previousOut;
-            // Nonce-source applies to scripts AND stylesheets, so tag every <script>, <style> and <link>.
-            for (String tag : NONCEABLE_TAGS) {
-                out = applyNonce(out, tag, nonce);
-            }
-            return out;
+        if (hasEnforcedPolicy) {
+            // Backward-compatible toggle: when cspReportOnly is set, the main policy is delivered as
+            // report-only (no enforcement), matching the historical single-policy behaviour.
+            final boolean asReportOnly = site.hasProperty(CspConstants.PROP_CSP_REPORT_ONLY)
+                    && site.getProperty(CspConstants.PROP_CSP_REPORT_ONLY).getBoolean();
+            response.addHeader(asReportOnly ? CSP_REPORT_ONLY_HEADER : CSP_HEADER,
+                    buildPolicyValue(enforcedPolicy, nonce, reportEndpoint));
+        }
+        if (hasReportOnlyPolicy) {
+            // The dedicated report-only policy is delivered alongside the enforced one, so a stricter
+            // candidate can be trialled in report-only mode (per the CSP spec) without dropping enforcement.
+            response.addHeader(CSP_REPORT_ONLY_HEADER,
+                    buildPolicyValue(reportOnlyPolicy, nonce, reportEndpoint));
         }
 
-        return previousOut;
+        // Nonce-source applies to scripts AND stylesheets, so tag every <script>, <style> and <link>.
+        // Rewriting on every request (replacing any pre-existing nonce) keeps the body consistent with
+        // the freshly generated header nonce even when fragments come out of Jahia's HTML cache.
+        String out = previousOut;
+        for (String tag : NONCEABLE_TAGS) {
+            out = applyNonce(out, tag, nonce);
+        }
+        return out;
     }
 
     private static String resolvePolicy(JCRNodeWrapper page, JCRSiteNode site, String property) throws RepositoryException {
@@ -144,14 +157,14 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
     }
 
     private String resolveReportEndpoint(RenderContext renderContext, Resource resource, JCRSiteNode site) throws RepositoryException {
-        if (site.hasProperty(ReportOnlyAction.PROP_CSP_REPORT_URL) && !site.getProperty(ReportOnlyAction.PROP_CSP_REPORT_URL).getString().isEmpty()) {
-            final String customUrl = site.getProperty(ReportOnlyAction.PROP_CSP_REPORT_URL).getString().trim();
+        if (site.hasProperty(CspConstants.PROP_CSP_REPORT_URL) && !site.getProperty(CspConstants.PROP_CSP_REPORT_URL).getString().isEmpty()) {
+            final String customUrl = site.getProperty(CspConstants.PROP_CSP_REPORT_URL).getString().trim();
             if (isValidReportUrl(customUrl)) {
                 return customUrl;
             }
             LOGGER.warn("The provided CSP report URL is not valid, using the default one.");
         }
-        return renderContext.getRequest().getContextPath() + resource.getNodePath() + DEFAULT_REPORT_ACTION_SUFFIX;
+        return renderContext.getRequest().getContextPath() + resource.getNodePath() + CspConstants.REPORT_ACTION_SUFFIX;
     }
 
     /**
@@ -204,7 +217,7 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
             policy.append(CSP_SEPARATOR).append(' ').append(REPORT_URI_DIRECTIVE).append(' ').append(reportEndpoint);
         }
         if (!containsDirective(withNonce, REPORT_TO_DIRECTIVE)) {
-            policy.append(CSP_SEPARATOR).append(' ').append(REPORT_TO_DIRECTIVE).append(' ').append(CSP_ENDPOINT_NAME);
+            policy.append(CSP_SEPARATOR).append(' ').append(REPORT_TO_DIRECTIVE).append(' ').append(CspConstants.CSP_ENDPOINT_NAME);
         }
         return policy.toString();
     }
