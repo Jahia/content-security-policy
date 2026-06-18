@@ -29,9 +29,10 @@ Once enabled, you can define a Content Security Policy at the site level or for 
 2. In the Options section, check the box "Add Content-Security-Policy at the site level"
    
    ![Site Level Config](./img/screen2.png)
-3. Fill the text area with your Content Security Policy (on one line)
-4. You can check the box "Only report CSP violations" to only log the violations in the Jahia log files
-5. You can provide a specific URL for receiving the violation reports (instead of the default jahia action to warn in the log files)
+3. Fill the "Enforced Content-Security-Policy" text area with your Content Security Policy (multi-line input is normalised into a single-line header)
+4. Optionally fill the "Report-only Content-Security-Policy" text area: this second policy is delivered in its own `Content-Security-Policy-Report-Only` header *alongside* the enforced one, so you can trial a stricter candidate policy (watching the violation reports) without dropping enforcement
+5. You can check the box "Only report CSP violations" to deliver the enforced policy in report-only mode (logged in the Jahia log files, nothing enforced)
+6. You can provide a specific URL for receiving the violation reports (instead of the default jahia action to warn in the log files)
 
 #### Define a Content Security Policy for a specific page
 
@@ -39,7 +40,7 @@ Once enabled, you can define a Content Security Policy at the site level or for 
 2. In the Options section, check the box "Replace Content-Security-Policy at the page level"
     
    ![Page Level Config](./img/screen3.png)
-3. Fill the text area with your Content Security Policy (on one line)
+3. Fill the text area with your Content Security Policy: the page-level enforced and report-only policies replace the site-level ones for that page
 
 ### Example of a Content Security Policy
 ```http
@@ -78,11 +79,11 @@ You have to provide the URL in the field Report violations to this URL.
 
 ### How to generate the nonce value?
 
-In your custom module, you have to set the value of the attribute nonce to the value of the Jahia property `contentSecurityPolicy.nonce.placeHolder`
-The value of your CSP, at the site level, has to contain the string nonce-.
-Then for each page rendering, a random value will be generated and:
-- will update the CSP for the page
-- will replace in the HTML code the static value of the nonce
+You do not need to generate the nonce yourself. Add `'nonce-'` to your policy (for example
+`script-src 'nonce-'`); on each request the module substitutes a fresh random value into the header
+and injects a matching `nonce` attribute into every `<script>`, `<style>` and `<link>` tag of the
+page, replacing any nonce already present in the markup. Responses for nonce-based policies are sent
+with `Cache-Control: no-store`, because a cached response could never match a fresh per-request nonce.
 This way, a potential hacker should not be able to bypass this security.
 
 ## Resources
