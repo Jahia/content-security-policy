@@ -23,8 +23,10 @@
  */
 package org.jahia.modules.csp.actions;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import javax.servlet.http.HttpServletRequest;
 import org.apache.commons.io.IOUtils;
 import org.jahia.bin.Action;
@@ -46,6 +48,11 @@ public final class ReportOnlyAction extends Action {
     public static final String CSP_REPORT_ONLY = "cspReportOnly";
     public static final String CSP_REPORT_URL = "cspReportUrl";
 
+    /** The largest report this action accepts; a violation report is a small JSON document. */
+    private static final int MAX_REPORT_BYTES = 64 * 1024;
+
+    private static final Pattern CONTROL_CHARACTERS = Pattern.compile("\\p{Cntrl}");
+
     @Activate
     public void activate() {
         setName("contentSecurityPolicyReportOnly");
@@ -57,12 +64,21 @@ public final class ReportOnlyAction extends Action {
         if ("application/csp-report".equals(req.getContentType())) {
             final JCRSiteNode site = renderContext.getSite();
             if (site.hasProperty(CSP_REPORT_ONLY) && site.getProperty(CSP_REPORT_ONLY).getBoolean()) {
-                final String report = IOUtils.toString(req.getInputStream());
-                LOGGER.warn(report);
+                // read one byte past the limit, so a report at the limit is still told apart from one over it
+                final byte[] buffer = new byte[MAX_REPORT_BYTES + 1];
+                final int length = IOUtils.read(req.getInputStream(), buffer);
+                if (length > MAX_REPORT_BYTES) {
+                    return ActionResult.BAD_REQUEST;
+                }
+                LOGGER.warn("{}", asSingleLine(new String(buffer, 0, length, StandardCharsets.UTF_8)));
                 return ActionResult.OK;
             }
         }
         return ActionResult.BAD_REQUEST;
+    }
+
+    private static String asSingleLine(String report) {
+        return CONTROL_CHARACTERS.matcher(report).replaceAll(" ");
     }
 
 }
