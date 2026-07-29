@@ -1,8 +1,8 @@
 import {addMixins, createSite, deleteSite, enableModule, publishAndWaitJobEnding, setNodeProperty} from '@jahia/cypress';
 
 /**
- * The report endpoint takes an unauthenticated body, so what it accepts is bounded: a violation
- * report is a small JSON document, and anything past that size is refused rather than read.
+ * A violation report is a small JSON document, so what this endpoint accepts is bounded: anything
+ * past that size is refused rather than read.
  */
 describe('CSP violation report endpoint', () => {
     const SITE_KEY = 'csp-report-endpoint-test-site';
