@@ -70,7 +70,9 @@ public final class ReportOnlyAction extends Action {
                 if (length > MAX_REPORT_BYTES) {
                     return ActionResult.BAD_REQUEST;
                 }
-                LOGGER.warn("{}", asSingleLine(new String(buffer, 0, length, StandardCharsets.UTF_8)));
+                if (LOGGER.isWarnEnabled()) {
+                    LOGGER.warn("{}", asSingleLine(new String(buffer, 0, length, StandardCharsets.UTF_8)));
+                }
                 return ActionResult.OK;
             }
         }
