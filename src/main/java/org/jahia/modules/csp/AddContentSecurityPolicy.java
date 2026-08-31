@@ -33,6 +33,7 @@ import org.jahia.services.render.filter.AbstractFilter;
 import org.jahia.services.render.filter.RenderChain;
 import org.jahia.services.render.filter.RenderFilter;
 import org.jahia.settings.SettingsBean;
+import org.jahia.settings.JahiaPropertiesUtils;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
 import org.slf4j.Logger;
@@ -83,8 +84,11 @@ public final class AddContentSecurityPolicy extends AbstractFilter {
 
         // use CSP at page-level first, otherwise use the one defined at site-level
         final String policyDirectives;
-        if (page.hasProperty(CSP_PROPERTY)) policyDirectives = page.getProperty(CSP_PROPERTY).getString();
-        else policyDirectives = site.hasProperty(CSP_PROPERTY) ? site.getProperty(CSP_PROPERTY).getString() : null;
+        if (page.hasProperty(CSP_PROPERTY)) {
+            policyDirectives = page.getProperty(CSP_PROPERTY).getString();
+        } else {
+            policyDirectives = site.hasProperty(CSP_PROPERTY) ? site.getProperty(CSP_PROPERTY).getString() : null;
+        }
 
         final String nonce = getNonceValue();
 
